@@ -1,7 +1,7 @@
 # 2020-11-02 J.Nider
 # apt-get install libsdl2-dev
 
-CPP_SRC = main.cpp
+CPP_SRC = main.cpp simulation.cpp robot.cpp
 CPP_OBJS = $(CPP_SRC:%.cpp=%.o)
 OBJS = $(CPP_OBJS)
 
