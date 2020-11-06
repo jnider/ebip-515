@@ -16,6 +16,11 @@ using namespace std;
 
 #define TARGET_FRAMERATE 30
 
+struct program_state
+{
+	bool sim_running; // is the simulation allowed to continue
+};
+
 class ui_object
 {
 public:
@@ -40,7 +45,7 @@ protected:
 class robot : public ui_object, public sim_object
 {
 public:
-	robot() : sim_object(0,50) { m_rect.w = 50; m_rect.h=20;  m_velocity_x=1; }
+	robot() : sim_object(0,50) { m_rect.w = 50; m_rect.h=20;  m_velocity_x=0.0005; }
 	~robot() {};
 	void Draw(SDL_Surface* s);
 	void Update(uint64_t nsec);
@@ -53,12 +58,13 @@ typedef std::list<sim_object*> sim_list;
 
 ui_list ui_objects;
 sim_list sim_objects;
+program_state state;
 
 void robot::Draw(SDL_Surface* s)
 {
-	m_rect.x = m_pos_x * 0.01;
-	m_rect.y = m_pos_y * 0.01;
-	printf("%s x=%u y=%u\n", __PRETTY_FUNCTION__, m_rect.x, m_rect.y); // __METHOD_NAME__
+	m_rect.x = m_pos_x;
+	m_rect.y = m_pos_y;
+	//printf("%s x=%u y=%u\n", __PRETTY_FUNCTION__, m_rect.x, m_rect.y); // __METHOD_NAME__
 	SDL_FillRect(s, &m_rect, SDL_MapRGB(s->format, 0x1F, 0x02, 0x20));
 }
 
@@ -68,7 +74,7 @@ void robot::Update(uint64_t nsec)
 	// update position based on velocity
 	m_pos_x += m_velocity_x;
 	m_pos_y += m_velocity_y;
-	printf("X: %f Y: %f\n", m_pos_x, m_pos_y);
+	//printf("X: %f Y: %f\n", m_pos_x, m_pos_y);
 }
 
 static void UpdateSimulation(uint64_t elapsed_ns)
@@ -93,6 +99,23 @@ static void Draw(SDL_Surface* s)
 	for (ui_list::iterator i = ui_objects.begin(); i != ui_objects.end(); i++)
 	{
 		(*i)->Draw(s);
+	}
+}
+
+static void DispatchInput()
+{
+	SDL_Event event;
+	if (SDL_PollEvent(&event))
+	{
+		switch(event.type)
+		{
+		case SDL_KEYDOWN:
+			if (event.key.keysym.sym == SDLK_ESCAPE)
+				state.sim_running = false;
+			else
+				printf("Got key %c\n", event.key.keysym.sym);
+			break;
+		}
 	}
 }
 
@@ -134,6 +157,7 @@ int main(int argc, char* args[])
 	unsigned int sim_running = 1;
 	unsigned int delay = 5000;
 	struct timespec prev, now, start;
+	state.sim_running = true;
 
 	// create a robot 
 	robot r;
@@ -145,17 +169,17 @@ int main(int argc, char* args[])
 	sim_objects.push_back(&r);
 
 	clock_gettime(CLOCK_MONOTONIC, &start);
-	while (sim_running)
+	while (state.sim_running)
 	{
 		prev = now;
 		clock_gettime(CLOCK_MONOTONIC, &now);
 
 		// check for input
+		DispatchInput();
 
 		// update the simulation
 		UpdateSimulation(TIME_ELAPSED_NS(prev, now));
 
-		// calculate frame rate
 		if (TIME_DIFFERENCE(start, now) > frame_delay)
 		{
 			frame_count++;
@@ -164,29 +188,11 @@ int main(int argc, char* args[])
 			Draw(surface);
 			SDL_UpdateWindowSurface(window);
 
-/*
-			if (frame_count > TARGET_FRAMERATE)
-			{
-				delay *= 1.1;
-				printf("Set delay to %u\n", delay);
-			}
-
-			if (frame_count < TARGET_FRAMERATE)
-			{
-				delay *= 0.9;
-				printf("Set delay to %u\n", delay);
-			}
-			frame_count = 0;
-*/
-
 			clock_gettime(CLOCK_MONOTONIC, &start);
 			count++;
 		}
 
-		//usleep(delay);
-
-		if (frame_count == 300)
-			sim_running = 0;
+		// calculate frame rate
 	}
 
 	//Destroy window
@@ -197,4 +203,3 @@ int main(int argc, char* args[])
 
 	return 0;
 }
-
