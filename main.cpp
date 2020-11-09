@@ -5,7 +5,7 @@
 #include <list>
 
 #include "simulation.h"
-#include "robot.h"
+#include "mysim.h"
 
 using namespace std;
 
@@ -19,54 +19,21 @@ using namespace std;
 
 #define TARGET_FRAMERATE 30
 
-struct program_state
-{
-	bool sim_running; // is the simulation allowed to continue
-	uint32_t fps_target; // our target frame rate
-};
-
 program_state state;
 
-class CMySimulation : public CSimulation
-{
-public:
-	CMySimulation() {};
-	~CMySimulation() {}
-	bool Initialize();
-
-private:
-	robot r;
-};
-
-bool CMySimulation::Initialize()
-{
-	printf("%s\n", __PRETTY_FUNCTION__);
-	//add it to the simulation list so it will be updated
-	sim_objects.push_back(&r);
-
-	return true;
-}
-
-static void DispatchInput()
+static void DispatchInput(CSimulation *sim)
 {
 	SDL_Event event;
 	if (SDL_PollEvent(&event))
 	{
-		switch(event.type)
-		{
-		case SDL_KEYDOWN:
-			if (event.key.keysym.sym == SDLK_ESCAPE)
-				state.sim_running = false;
-			else
-				printf("Got key %c\n", event.key.keysym.sym);
-			break;
-		}
+		sim->HandleEvent(&event);
 	}
 }
 
 int main(int argc, char* args[])
 {
 	SDL_Window* window = NULL;
+	SDL_Renderer* renderer = NULL;
 	SDL_Surface* surface = NULL;
 	SDL_DisplayMode mode;
 	double frame_delay = 0.003;
@@ -78,12 +45,18 @@ int main(int argc, char* args[])
 		return -1;
 	}
 
+	if(TTF_Init()==-1)
+	{
+		printf("TTF_Init: %s\n", TTF_GetError());
+		exit(2);
+	}
+
 	// check current display mode on display 0
 	SDL_GetCurrentDisplayMode(0, &mode);
 
 	//Create window
 	window = SDL_CreateWindow("515 Simulator", SDL_WINDOWPOS_CENTERED,
-		SDL_WINDOWPOS_CENTERED, mode.w, mode.h, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
+		SDL_WINDOWPOS_CENTERED, mode.w, mode.h, SDL_WINDOW_FULLSCREEN);
 	if(!window)
 	{
 		printf( "Window could not be created! SDL_Error: %s\n", SDL_GetError() );
@@ -96,59 +69,71 @@ int main(int argc, char* args[])
 
 	//Get window surface
 	surface = SDL_GetWindowSurface(window);
+	renderer = SDL_CreateSoftwareRenderer(surface);
 
-	unsigned int frame_count = 0;
-	unsigned int count = 0;
-	unsigned int sim_running = 1;
 	struct timespec prev, now, start, fr_start;
-	state.sim_running = true;
-	state.fps_target = 30;
+	unsigned int frame_count;
 
-	// Initialize the objects to be simulated
-	CMySimulation sim1;
-	sim1.Initialize();
-
-	clock_gettime(CLOCK_MONOTONIC, &start);
-	fr_start = start;
-	now = start;
-	while (state.sim_running)
+	while (!state.quit)
 	{
-		prev = now;
-		clock_gettime(CLOCK_MONOTONIC, &now);
+		frame_count = 0;
+		state.sim_running = SIM_STATE_RUNNING;
+		state.fps_target = 30;
+		state.total_time = 0;
 
-		// check for input
-		DispatchInput();
+		// Initialize the objects to be simulated
+		CMySimulation sim1;
+		if (!sim1.Initialize(&state, w, h))
+			state.sim_running = SIM_STATE_STOPPED;
 
-		// update the simulation
-		sim1.UpdateSimulation(TIME_ELAPSED_NS(prev, now));
-
-		if (TIME_DIFFERENCE(start, now) > frame_delay)
+		clock_gettime(CLOCK_MONOTONIC, &start);
+		fr_start = start;
+		now = start;
+		while (state.sim_running != SIM_STATE_STOPPED)
 		{
-			frame_count++;
+			prev = now;
+			clock_gettime(CLOCK_MONOTONIC, &now);
+
+			// check for input
+			DispatchInput(&sim1);
+
+			// update the simulation
+			if (state.sim_running == SIM_STATE_RUNNING)
+			{
+				uint64_t elapsed = TIME_ELAPSED_NS(prev, now);
+				state.total_time += elapsed;
+				sim1.UpdateSimulation(state.total_time, elapsed);
+			}
 
 			// update the UI
-			sim1.Draw(surface);
-			SDL_UpdateWindowSurface(window);
+			if (TIME_DIFFERENCE(start, now) > frame_delay)
+			{
+				frame_count++;
 
-			clock_gettime(CLOCK_MONOTONIC, &start);
-			count++;
-		}
+				sim1.Draw(renderer);
+				SDL_UpdateWindowSurface(window);
 
-		// calculate frame rate
-		if (TIME_DIFFERENCE(fr_start, now) > 1)
-		{
-			printf("FPS: %u\n", frame_count);
-			if (frame_count > state.fps_target)
-				frame_delay *= 1.1;
-			if (frame_count < state.fps_target)
-				frame_delay *= 0.9;
-			frame_count = 0;
-			fr_start = now;
+				clock_gettime(CLOCK_MONOTONIC, &start);
+			}
+
+			// calculate frame rate
+			if (TIME_DIFFERENCE(fr_start, now) > 1)
+			{
+				//printf("FPS: %u\n", frame_count);
+				if (frame_count > state.fps_target)
+					frame_delay *= 1.2;
+				if (frame_count < state.fps_target)
+					frame_delay *= 0.8;
+				frame_count = 0;
+				fr_start = now;
+
+				//printf("[%lu]: ", state.total_time);
+			}
 		}
 	}
 
 	//Destroy window
-	SDL_DestroyWindow( window );
+	SDL_DestroyWindow(window);
 
 	//Quit SDL subsystems
 	SDL_Quit();
