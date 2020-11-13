@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <getopt.h>
 #include <list>
 
 #include "simulation.h"
@@ -19,6 +20,12 @@ using namespace std;
 
 #define TARGET_FRAMERATE 30
 
+static struct option options[] =
+{
+  {"rate", required_argument, 0, 'r'},
+  {0, no_argument, 0, 0}
+};
+
 program_state state;
 
 static void DispatchInput(CSimulation *sim)
@@ -30,13 +37,32 @@ static void DispatchInput(CSimulation *sim)
 	}
 }
 
-int main(int argc, char* args[])
+int main(int argc, char* argv[])
 {
 	SDL_Window* window = NULL;
 	SDL_Renderer* renderer = NULL;
 	SDL_Surface* surface = NULL;
 	SDL_DisplayMode mode;
 	double frame_delay = 0.003;
+	state.realtime = true;
+	state.update_rate = 80;
+	state.ui_visible = true;
+
+	int c;
+	while (1)
+	{
+		c = getopt_long (argc, argv, "r:", options, 0);
+		if (c == -1)
+		break;
+
+		switch (c)
+		{
+		case 'r':
+			state.realtime = false;
+			state.update_rate = atoll(optarg);
+			break;
+		}
+	}
 
 	//Initialize SDL
 	if( SDL_Init( SDL_INIT_VIDEO ) < 0 )
@@ -100,7 +126,11 @@ int main(int argc, char* args[])
 			// update the simulation
 			if (state.sim_running == SIM_STATE_RUNNING)
 			{
-				uint64_t elapsed = TIME_ELAPSED_NS(prev, now);
+				uint64_t elapsed;
+				if (!state.realtime)
+					elapsed = state.update_rate;
+				else
+					elapsed = TIME_ELAPSED_NS(prev, now);
 				state.total_time += elapsed;
 				sim1.UpdateSimulation(state.total_time, elapsed);
 			}
