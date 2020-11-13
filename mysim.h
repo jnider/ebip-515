@@ -13,6 +13,7 @@
 #define MAX_BALL_VELOCITY			35
 #define ROBOT_VELOCITY				50
 #define MAX_SENSOR_NOISE			0
+#define CATCH_TOLERANCE				1.000
 
 #define TIME_COLLISIONS_VISIBLE	SECONDS_TO_NS(1)
 #define TIME_BEFORE_EGG				SECONDS_TO_NS(3)
@@ -47,6 +48,9 @@ public:
 	static void event_handler(CSimulation *s, uint64_t id, uint64_t timestamp);
 	bool sensor_read_pos(sim_object *obj, uint64_t *x, uint64_t *y);
 	void HandleEvent(SDL_Event *event);
+
+protected:
+	bool AddSensor(sim_object *s);
 
 public:
 	bool display_sensors; // should we display the sensor readings on-screen

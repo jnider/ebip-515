@@ -5,10 +5,6 @@ CMySimulation::~CMySimulation()
 	delete robot;
 	delete bird;
 	delete ball;
-/*
-	for (uint64_t i=0; i < m_num_sensors; i++)
-		SDL_FreeSurface(m_s_sensors[i]);
-*/
 }
 
 bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
@@ -27,7 +23,7 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 
 	ground = new sim_object(0, h-50);
 	ground->set_width(w);
-	ground->set_height(10);
+	ground->set_height(50);
 	ground->set_name("ground");
 	sim_objects.push_back(ground);
 
@@ -58,7 +54,7 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 */
 
 	// create the list of sensors to poll
-	m_sensors[m_num_sensors++] = robot;
+	AddSensor(robot);
 	printf("Capturing sensor data every %lu ns (%lu Hz)\n", m_sensor_delay, 1000000000/m_sensor_delay);
 	return true;
 }
@@ -110,12 +106,26 @@ void CMySimulation::ThrowBall()
 	ball->set_name("ball");
 	ball->set_tracer_length(40);
 	sim_objects.push_back(ball);
+
+	AddSensor(ball);
+}
+
+bool CMySimulation::AddSensor(sim_object *s)
+{
+	if (m_num_sensors >= MAX_SENSORS)
+	{
+		printf("Can't add any more sensors\n");
+		return false;
+	}
+
+	m_s_sensors[m_num_sensors] = NULL;
 	m_sensors[m_num_sensors++] = ball;
+	return true;
 }
 
 void CMySimulation::event_handler(CSimulation *s, uint64_t eventID, uint64_t timestamp)
 {
-	//printf("%lu: %s\n", timestamp, __PRETTY_FUNCTION__);
+	printf("%lu: %s\n", timestamp, __PRETTY_FUNCTION__);
 
 	CMySimulation *mysim = static_cast<CMySimulation*>(s);
 
@@ -133,7 +143,7 @@ void CMySimulation::event_handler(CSimulation *s, uint64_t eventID, uint64_t tim
 
 uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 {
-	CSimulation::UpdateSimulation(abs_ns, elapsed_ns);
+	uint64_t ret = CSimulation::UpdateSimulation(abs_ns, elapsed_ns);
 
 	// read the sensors
 	if (m_sensor_elapsed > m_sensor_delay)
@@ -142,57 +152,77 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 
 		m_sensor_elapsed -= m_sensor_delay;
 
-		// read the set of sensors (degrees of freedom) for the controlled agent (robot) and observed agent(s) (person and ball)
-
-		// prediction
-
-		// movement
-
 		// prepare the UI output by freeing the previous messages, and then filling in the new ones
 		SDL_Color White = {0xFF, 0xF0, 0xF0};
 		for (uint64_t i=0; i < m_num_sensors; i++)
 		{
 			uint64_t x_pos=0, y_pos=0;
-			if (m_s_sensors[i])
-			{
-				SDL_FreeSurface(m_s_sensors[i]);
-				m_s_sensors[i] = NULL;
-			}
-
+			// read the set of sensors (degrees of freedom) for the controlled agent (robot) and observed agent(s) (person and ball)
 			sensor_read_pos(m_sensors[i], &x_pos, &y_pos);
 
-			if (m_sensors[i])
+			if (m_state->ui_visible)
 			{
-				snprintf(message, 256, "%s x:%lu y:%lu", m_sensors[i]->name(), x_pos, y_pos);
-				m_s_sensors[i] = TTF_RenderText_Solid(m_fontSans, message, White);
+				if (m_s_sensors[i])
+				{
+					SDL_FreeSurface(m_s_sensors[i]);
+					m_s_sensors[i] = NULL;
+				}
+
+				if (m_sensors[i])
+				{
+					snprintf(message, 256, "%s x:%lu y:%lu", m_sensors[i]->name(), x_pos, y_pos);
+					m_s_sensors[i] = TTF_RenderText_Solid(m_fontSans, message, White);
+				}
 			}
 		}
+
+		// prediction
+
+		// movement
+
 	}
 	else
 	{
 		m_sensor_elapsed += elapsed_ns;
 	}
 
+	if (ret == COLLISION)
 	{
-		if (collision)
+		printf("Got collision\n");
+		if (who_collided(m_collision, robot, ball))
 		{
-			//if (strcmp(collision->a->name(), "egg") == 0)
+			printf("robot & ball collided\n");
+			ball->set_velocity_x(0);
+			ball->set_velocity_y(0);
+			ball->set_acceleration_y(0);
+
+			// if the ball landed on top of the robot, call it a 'catch'
+			printf("Bottom of ball: %f\n", ball->y() + ball->height());
+			printf("Top of robot: %f\n", robot->y());
+			if (ball->y() + ball->height() - robot->y() < CATCH_TOLERANCE)
 			{
-				collision->a->set_velocity_x(0);
-				collision->a->set_velocity_y(0);
+				printf("catch! %s (%f)\n", m_collision->a->name(), ball->y() + ball->height() - robot->y());
 			}
 		}
+		else if (who_collided(m_collision, ground, ball))
+		{
+			ball->set_velocity_x(0);
+			ball->set_velocity_y(0);
+			ball->set_acceleration_y(0);
+		}
+		m_state->sim_running = SIM_STATE_PAUSED;
+		return 0;
 	}
 
 	// remove old collisions
-	if (collision && abs_ns - collision->timestamp > TIME_COLLISIONS_VISIBLE)
+	if (m_collision && abs_ns - m_collision->timestamp > TIME_COLLISIONS_VISIBLE)
 	{
-		collision->draw = false;
-		delete collision;
-		collision = NULL;
+		m_collision->draw = false;
+		delete m_collision;
+		m_collision = NULL;
 	}
 
-	return SIM_STATE_RUNNING;
+	return 0;
 }
 
 void CMySimulation::RobotMove(uint64_t direction)

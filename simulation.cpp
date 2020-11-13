@@ -104,27 +104,7 @@ uint64_t CSimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 	}
 
 	// check for new collisions
-	for (obj_list::iterator i = sim_objects.begin(); i != sim_objects.end(); i++)
-	{
-		for (obj_list::iterator j = sim_objects.begin(); j != sim_objects.end(); j++)
-		{
-			if (i != j)
-			{
-				if (CheckForCollision(*i, *j))
-				{
-					//printf("%s collided with %s\n", (*i)->name(), (*j)->name());
-					collision = new sim_collision;
-					collision->a = (*i);
-					collision->b = (*j);
-					collision->x = (*i)->x() + (*i)->width()/2;
-					collision->y = (*i)->y() + (*i)->height()/2;
-					collision->timestamp = abs_ns;
-					collision->draw = true;
-					return COLLISION;
-				}
-			}
-		}
-	}
+	CheckForCollision(abs_ns);
 
 	return OK;
 }
@@ -144,23 +124,54 @@ void CSimulation::Draw(SDL_Renderer* renderer)
 	}
 
 	// draw annotations (collisions, projected paths, etc)
-	if (collision && collision->draw)
+	if (m_collision && m_collision->draw)
 	{
-		filledCircleColor(renderer, collision->x, collision->y, 10, 0xFF0F0FE0);
-		filledCircleColor(renderer, collision->x, collision->y, 5, 0xFF0F0FFF);
+		filledCircleColor(renderer, m_collision->x, m_collision->y, 10, 0xFF0F0FE0);
+		filledCircleColor(renderer, m_collision->x, m_collision->y, 5, 0xFF0F0FFF);
 	}
 
 }
 
-bool CSimulation::CheckForCollision(sim_object* a, sim_object *b)
+bool CSimulation::CheckForCollision(uint64_t abs_ns)
 {
-	if ((a->x() > b->x() && a->x() < (b->x() + b->width()) ||
-		(a->x() + a->width()) > b->x() && (a->x() + a->width()) < (b->x() + b->width())) &&
-		(a->y() > b->y() && a->y() < (b->y() + b->height()) ||
-		((a->y() + a->height()) > b->y() && (a->y() + a->height()) < (b->y() + b->height()))))
+	for (obj_list::iterator i = sim_objects.begin(); i != sim_objects.end(); i++)
 	{
-		return true;
+		for (obj_list::iterator j = i; j != sim_objects.end(); j++)
+		{
+			if (i != j)
+			{
+				sim_object *a = *i;
+				sim_object *b = *j;
+				printf("-- checking collision between %s and %s\n", a->name(), b->name());
+
+	//printf("%s x: %f-%f\n", a->name(), a->x(), a->x() + a->width());
+	//printf("%s x: %f-%f\n", b->name(), b->x(), b->x() + b->width());
+	//printf("%s y: %f-%f\n", a->name(), a->y(), a->y() + a->height());
+	//printf("%s y: %f-%f\n", b->name(), b->y(), b->y() + b->height());
+				if ((a->x() > b->x() && a->x() < (b->x() + b->width()) ||
+					(a->x() + a->width()) > b->x() && (a->x() + a->width()) < (b->x() + b->width())) &&
+					(a->y() > b->y() && a->y() < (b->y() + b->height()) ||
+					((a->y() + a->height()) > b->y() && (a->y() + a->height()) < (b->y() + b->height()))))
+				{
+					printf("%s collided with %s\n", (*i)->name(), (*j)->name());
+
+					m_collision = new sim_collision;
+					m_collision->a = (*i);
+					m_collision->b = (*j);
+					m_collision->x = (*i)->x() + (*i)->width()/2;
+					m_collision->y = (*i)->y() + (*i)->height()/2;
+					m_collision->timestamp = abs_ns;
+					m_collision->draw = true;
+					return COLLISION;
+				}
+			}
+		}
 	}
 
 	return false;
+}
+
+bool CSimulation::who_collided(sim_collision *c, sim_object *a, sim_object *b)
+{
+	return (c->a == a && c->b == b || c->a == b && c->b == a);
 }

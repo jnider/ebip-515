@@ -29,6 +29,9 @@ public:
 	uint32_t fps_target; // our target frame rate
 	uint64_t total_time; // total running time of the simulation (ns)
 	bool quit;				// quit the program
+	uint64_t update_rate; // forced rate (ns) for updating the simulation
+	bool realtime;			// use the wall clock, or update_rate
+	bool ui_visible;		// use graphical mode
 };
 
 class CSimulation;
@@ -120,14 +123,15 @@ typedef std::list<sim_event*> event_list;
 class CSimulation
 {
 public:
-	CSimulation() : m_state(NULL), collision(NULL) {}
+	CSimulation() : m_state(NULL), m_collision(NULL) {}
 	virtual bool Initialize(program_state *state, uint32_t w, uint32_t h);
 	virtual uint64_t UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns);
 	virtual void Draw(SDL_Renderer* r);
 	virtual void HandleEvent(SDL_Event *event) = 0;
+	bool who_collided(sim_collision *c, sim_object *a, sim_object *b);
 
 protected:
-	bool CheckForCollision(sim_object* a, sim_object *b);
+	bool CheckForCollision(uint64_t abs_ns);
 
 protected:
 	program_state *m_state;
@@ -135,7 +139,7 @@ protected:
 	uint64_t m_height;
 	obj_list sim_objects;
 	event_list sim_events; // schedule of things that happen, and when
-	sim_collision *collision;
+	sim_collision *m_collision;
 };
 
 
