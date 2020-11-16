@@ -326,11 +326,13 @@ void CMySimulation::HandleEvent(SDL_Event *event)
 				break;
 
 			case SDLK_RIGHT:
-				RobotMove(DIR_RIGHT);
+				if (m_state->training)
+					RobotMove(DIR_RIGHT);
 				break;
 
 			case SDLK_LEFT:
-				RobotMove(DIR_LEFT);
+				if (m_state->training)
+					RobotMove(DIR_LEFT);
 				break;
 
 			case SDLK_p:
