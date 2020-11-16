@@ -149,7 +149,7 @@ bool CMySimulation::AddSensor(sim_object *s)
 	}
 
 	m_s_sensors[m_num_sensors] = NULL;
-	m_sensors[m_num_sensors++] = ball;
+	m_sensors[m_num_sensors++] = s;
 	return true;
 }
 
