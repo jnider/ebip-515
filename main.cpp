@@ -97,6 +97,9 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	// initialize random number generator
+	srand(time(NULL));
+
 	//Initialize SDL
 	if( SDL_Init( SDL_INIT_VIDEO ) < 0 )
 	{
