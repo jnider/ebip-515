@@ -73,18 +73,20 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 		}
 		if (!m_tracefile)
 			printf("Error opening trace file %s\n", tmpstr);
+		else
+			fprintf(m_tracefile, "# version %u\n", VERSION);
 		free(tmpstr);
 	}
 	else
 	{
 		// Load previous traces to create an ensemble
-
+		//CreateInitialEnsemble();
 	}
 
 	UpdateCatchrateUI();
 
 	if (m_state->training)
-	m_s_training = TTF_RenderText_Solid(m_fontSans, "TRAINING", Red);
+		m_s_training = TTF_RenderText_Solid(m_fontSans, "TRAINING", Red);
 
 	return true;
 }
