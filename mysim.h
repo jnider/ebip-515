@@ -35,7 +35,7 @@ class CMySimulation : public CSimulation
 {
 public:
 	CMySimulation() : robot(NULL), bird(NULL), egg(NULL), player(NULL), ball(NULL), m_fontSans(NULL), m_num_sensors(0),
-		m_sensor_elapsed(0), m_sensor_delay(HZ_TO_NS(SENSOR_FREQUENCY))
+		m_sensor_elapsed(0), m_sensor_delay(HZ_TO_NS(SENSOR_FREQUENCY)), m_collision(NULL), m_s_catchrate(NULL), m_catch(0), m_tracefile(NULL)
 		{};
 	~CMySimulation();
 
@@ -48,9 +48,12 @@ public:
 	static void event_handler(CSimulation *s, uint64_t id, uint64_t timestamp);
 	bool sensor_read_pos(sim_object *obj, uint64_t *x, uint64_t *y);
 	void HandleEvent(SDL_Event *event);
+	void OnCollision(uint64_t abs_ns, sim_object *a, sim_object *b);
 
 protected:
 	bool AddSensor(sim_object *s);
+	void UpdateCatchrateUI();
+	void UpdateSensorUI(uint32_t i, uint64_t x_pos, uint64_t y_pos);
 
 public:
 	bool display_sensors; // should we display the sensor readings on-screen
@@ -63,12 +66,17 @@ private:
 	sim_object *player;
 	sim_object *ball;
 	TTF_Font* m_fontSans;
-	SDL_Surface* m_s_sensors[MAX_SENSORS]; // ui objects containing sensor text
+	sim_collision *m_collision;
 	sim_object *m_sensors[MAX_SENSORS]; // dynamic array of sensors to read
 	uint64_t m_num_sensors; // how many elements in the m_sensors array
-
 	uint64_t m_sensor_elapsed; // time elapsed since the last sensor reading
 	uint64_t m_sensor_delay; // how long to wait (ns) between sensor readings
+	uint64_t m_catch;
+	uint64_t m_trials;
+	FILE *m_tracefile; // log of sensor readings in CSV format
+
+	SDL_Surface* m_s_sensors[MAX_SENSORS]; // ui objects containing sensor text
+	SDL_Surface* m_s_catchrate;
 };
 
 

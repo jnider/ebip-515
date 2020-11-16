@@ -123,13 +123,6 @@ void CSimulation::Draw(SDL_Renderer* renderer)
 		(*i)->Draw(renderer);
 	}
 
-	// draw annotations (collisions, projected paths, etc)
-	if (m_collision && m_collision->draw)
-	{
-		filledCircleColor(renderer, m_collision->x, m_collision->y, 10, 0xFF0F0FE0);
-		filledCircleColor(renderer, m_collision->x, m_collision->y, 5, 0xFF0F0FFF);
-	}
-
 }
 
 bool CSimulation::CheckForCollision(uint64_t abs_ns)
@@ -142,27 +135,30 @@ bool CSimulation::CheckForCollision(uint64_t abs_ns)
 			{
 				sim_object *a = *i;
 				sim_object *b = *j;
-				printf("-- checking collision between %s and %s\n", a->name(), b->name());
+/*
+				if (strcmp(a->name(), "robot") == 0 && strcmp(b->name(), "ball") == 0)
+				{
+					printf("-- checking collision between %s and %s\n", a->name(), b->name());
+					printf("%s x: %f-%f\n", a->name(), a->x(), a->x() + a->width());
+					printf("%s x: %f-%f\n", b->name(), b->x(), b->x() + b->width());
+					printf("%s y: %f-%f\n", a->name(), a->y(), a->y() + a->height());
+					printf("%s y: %f-%f\n", b->name(), b->y(), b->y() + b->height());
+				}
+*/
 
-	//printf("%s x: %f-%f\n", a->name(), a->x(), a->x() + a->width());
-	//printf("%s x: %f-%f\n", b->name(), b->x(), b->x() + b->width());
-	//printf("%s y: %f-%f\n", a->name(), a->y(), a->y() + a->height());
-	//printf("%s y: %f-%f\n", b->name(), b->y(), b->y() + b->height());
+/*
 				if ((a->x() > b->x() && a->x() < (b->x() + b->width()) ||
 					(a->x() + a->width()) > b->x() && (a->x() + a->width()) < (b->x() + b->width())) &&
 					(a->y() > b->y() && a->y() < (b->y() + b->height()) ||
 					((a->y() + a->height()) > b->y() && (a->y() + a->height()) < (b->y() + b->height()))))
+*/
+				if (!(a->x() >= b->x() + b->width() || b->x() >= a->x() + a->width()) && 
+					(!(a->y() >= b->y() + b->height() || b->y() >= a->y() + a->height())))
 				{
+					OnCollision(abs_ns, *i, *j);
 					printf("%s collided with %s\n", (*i)->name(), (*j)->name());
 
-					m_collision = new sim_collision;
-					m_collision->a = (*i);
-					m_collision->b = (*j);
-					m_collision->x = (*i)->x() + (*i)->width()/2;
-					m_collision->y = (*i)->y() + (*i)->height()/2;
-					m_collision->timestamp = abs_ns;
-					m_collision->draw = true;
-					return COLLISION;
+					return true;
 				}
 			}
 		}

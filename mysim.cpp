@@ -1,7 +1,12 @@
 #include "mysim.h"
 
+SDL_Color White = {0xFF, 0xF0, 0xF0};
+
 CMySimulation::~CMySimulation()
 {
+	if (m_tracefile)
+		fclose(m_tracefile);
+
 	delete robot;
 	delete bird;
 	delete ball;
@@ -9,7 +14,7 @@ CMySimulation::~CMySimulation()
 
 bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 {
-	//printf("%s\n", __PRETTY_FUNCTION__);
+	//DEBUG_PRINT("%s\n", __PRETTY_FUNCTION__);
 
 	if (!CSimulation::Initialize(state, w, h))
 		return false;
@@ -17,7 +22,7 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 	m_fontSans = TTF_OpenFont("/usr/share/fonts/truetype/open-sans/OpenSans-Regular.ttf", 24);
 	if (!m_fontSans)
 	{
-		printf("Can't find font Sans\n");
+		DEBUG_PRINT("Can't find font Sans\n");
 		return false;
 	}
 
@@ -55,7 +60,12 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 
 	// create the list of sensors to poll
 	AddSensor(robot);
-	printf("Capturing sensor data every %lu ns (%lu Hz)\n", m_sensor_delay, 1000000000/m_sensor_delay);
+	DEBUG_PRINT("Capturing sensor data every %lu ns (%lu Hz)\n", m_sensor_delay, 1000000000/m_sensor_delay);
+
+	// open trace file
+	m_tracefile = fopen(state->trace_filename, "w+");
+
+	UpdateCatchrateUI();
 	return true;
 }
 
@@ -63,11 +73,11 @@ void CMySimulation::DropEgg()
 {
 	if (egg)
 	{
-		printf("Egg already dropped!\n");
+		DEBUG_PRINT("Egg already dropped!\n");
 		return;
 	}
 
-	printf("Dropping egg @ %f x %f\n", bird->x(), bird->y());
+	DEBUG_PRINT("Dropping egg @ %f x %f\n", bird->x(), bird->y());
 	egg = new sim_object(bird->x(), bird->y() + bird->height());
 	egg->set_width(20);
 	egg->set_height(20);
@@ -82,13 +92,13 @@ void CMySimulation::ThrowBall()
 {
 	if (ball)
 	{
-		printf("Ball already thrown!\n");
+		DEBUG_PRINT("Ball already thrown!\n");
 		return;
 	}
 
 	if (!player)
 	{
-		printf("No player!\n");
+		DEBUG_PRINT("No player!\n");
 		return;
 	}
 
@@ -96,7 +106,7 @@ void CMySimulation::ThrowBall()
 	uint64_t x = rand() % (MAX_BALL_VELOCITY - MIN_BALL_VELOCITY);
 	uint64_t y = rand() % (MAX_BALL_VELOCITY - MIN_BALL_VELOCITY);
 
-	printf("Throwing ball x: %lu y: %lu\n", x, y);
+	DEBUG_PRINT("Throwing ball x: %lu y: %lu\n", x, y);
 	ball = new sim_object(player->x() + player->width(), player->y());
 	ball->set_width(20);
 	ball->set_height(20);
@@ -114,7 +124,7 @@ bool CMySimulation::AddSensor(sim_object *s)
 {
 	if (m_num_sensors >= MAX_SENSORS)
 	{
-		printf("Can't add any more sensors\n");
+		DEBUG_PRINT("Can't add any more sensors\n");
 		return false;
 	}
 
@@ -125,7 +135,7 @@ bool CMySimulation::AddSensor(sim_object *s)
 
 void CMySimulation::event_handler(CSimulation *s, uint64_t eventID, uint64_t timestamp)
 {
-	printf("%lu: %s\n", timestamp, __PRETTY_FUNCTION__);
+	DEBUG_PRINT("%lu: %s\n", timestamp, __PRETTY_FUNCTION__);
 
 	CMySimulation *mysim = static_cast<CMySimulation*>(s);
 
@@ -148,33 +158,22 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 	// read the sensors
 	if (m_sensor_elapsed > m_sensor_delay)
 	{
-		char message[256];
-
 		m_sensor_elapsed -= m_sensor_delay;
+		fprintf(m_tracefile, "%010lu", abs_ns);
 
-		// prepare the UI output by freeing the previous messages, and then filling in the new ones
-		SDL_Color White = {0xFF, 0xF0, 0xF0};
+		// read all sensors
 		for (uint64_t i=0; i < m_num_sensors; i++)
 		{
 			uint64_t x_pos=0, y_pos=0;
-			// read the set of sensors (degrees of freedom) for the controlled agent (robot) and observed agent(s) (person and ball)
+			// read the set of sensors for the controlled agent (robot) and observed agent(s) (person and ball)
 			sensor_read_pos(m_sensors[i], &x_pos, &y_pos);
+			fprintf(m_tracefile, ",%lu,%lu", x_pos, y_pos);
 
+			// update UI if necessary
 			if (m_state->ui_visible)
-			{
-				if (m_s_sensors[i])
-				{
-					SDL_FreeSurface(m_s_sensors[i]);
-					m_s_sensors[i] = NULL;
-				}
-
-				if (m_sensors[i])
-				{
-					snprintf(message, 256, "%s x:%lu y:%lu", m_sensors[i]->name(), x_pos, y_pos);
-					m_s_sensors[i] = TTF_RenderText_Solid(m_fontSans, message, White);
-				}
-			}
+				UpdateSensorUI(i, x_pos, y_pos);
 		}
+		fputs("\n", m_tracefile);
 
 		// prediction
 
@@ -186,33 +185,6 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 		m_sensor_elapsed += elapsed_ns;
 	}
 
-	if (ret == COLLISION)
-	{
-		printf("Got collision\n");
-		if (who_collided(m_collision, robot, ball))
-		{
-			printf("robot & ball collided\n");
-			ball->set_velocity_x(0);
-			ball->set_velocity_y(0);
-			ball->set_acceleration_y(0);
-
-			// if the ball landed on top of the robot, call it a 'catch'
-			printf("Bottom of ball: %f\n", ball->y() + ball->height());
-			printf("Top of robot: %f\n", robot->y());
-			if (ball->y() + ball->height() - robot->y() < CATCH_TOLERANCE)
-			{
-				printf("catch! %s (%f)\n", m_collision->a->name(), ball->y() + ball->height() - robot->y());
-			}
-		}
-		else if (who_collided(m_collision, ground, ball))
-		{
-			ball->set_velocity_x(0);
-			ball->set_velocity_y(0);
-			ball->set_acceleration_y(0);
-		}
-		m_state->sim_running = SIM_STATE_PAUSED;
-		return 0;
-	}
 
 	// remove old collisions
 	if (m_collision && abs_ns - m_collision->timestamp > TIME_COLLISIONS_VISIBLE)
@@ -247,15 +219,14 @@ void CMySimulation::Draw(SDL_Renderer* renderer)
 {
 	CSimulation::Draw(renderer);
 
+	SDL_Rect Message_rect; //create a rect
 	if (display_sensors)
 	{
-		SDL_Rect Message_rect; //create a rect
 		Message_rect.x = m_width - 220;  //controls the rect's x coordinate 
 		Message_rect.y = m_height / 2; // controls the rect's y coordinte
 		Message_rect.w = 220; // controls the width of the rect
 		Message_rect.h = 50; // controls the height of the rect
 
-		//Don't forget to free your surface and texture
 		for (uint64_t i=0; i < m_num_sensors; i++)
 		{
 			Message_rect.y += Message_rect.h + 5;
@@ -266,6 +237,22 @@ void CMySimulation::Draw(SDL_Renderer* renderer)
 				SDL_DestroyTexture(txt_sensors);
 			}
 		}
+	}
+
+	// immediately below the sensors, write the catch rate
+	if (m_s_catchrate)
+	{
+		Message_rect.y += Message_rect.h + 5;
+		SDL_Texture* txt = SDL_CreateTextureFromSurface(renderer, m_s_catchrate);
+		SDL_RenderCopy(renderer, txt, NULL, &Message_rect);
+		SDL_DestroyTexture(txt);
+	}
+	
+	// draw annotations (collisions, projected paths, etc)
+	if (m_collision && m_collision->draw)
+	{
+		filledCircleColor(renderer, m_collision->x, m_collision->y, 10, 0xFF0F0FE0);
+		filledCircleColor(renderer, m_collision->x, m_collision->y, 5, 0xFF0F0FFF);
 	}
 }
 
@@ -324,13 +311,13 @@ void CMySimulation::HandleEvent(SDL_Event *event)
 				break;
 
 			case SDLK_r:
-				printf("Restart simulation\n");
+				DEBUG_PRINT("Restart simulation\n");
 				m_state->sim_running = SIM_STATE_STOPPED;
 				m_state->quit = false;
 				break;
 
 			default:
-				printf("Got key %c\n", event->key.keysym.sym);
+				DEBUG_PRINT("Got key %c\n", event->key.keysym.sym);
 			}
 			break;
 
@@ -345,3 +332,64 @@ void CMySimulation::HandleEvent(SDL_Event *event)
 		}
 }
 
+void CMySimulation::OnCollision(uint64_t abs_ns, sim_object *a, sim_object *b)
+{
+	DEBUG_PRINT("Got collision\n");
+	m_collision = new sim_collision;
+	m_collision->a = a;
+	m_collision->b = b;
+	m_collision->x = a->x() + a->width()/2;
+	m_collision->y = a->y() + a->height()/2;
+	m_collision->timestamp = abs_ns;
+	m_collision->draw = true;
+
+	if (who_collided(m_collision, robot, ball))
+	{
+		DEBUG_PRINT("robot & ball collided\n");
+		ball->set_velocity_x(0);
+		ball->set_velocity_y(0);
+		ball->set_acceleration_y(0);
+
+		// if the ball landed on top of the robot, call it a 'catch'
+		//DEBUG_PRINT("Bottom of ball: %f\n", ball->y() + ball->height());
+		//DEBUG_PRINT("Top of robot: %f\n", robot->y());
+		if (ball->y() + ball->height() - robot->y() < CATCH_TOLERANCE)
+		{
+			DEBUG_PRINT("catch! %s (%f)\n", m_collision->a->name(), ball->y() + ball->height() - robot->y());
+			m_catch++;
+			UpdateCatchrateUI();
+		}
+	}
+	else if (who_collided(m_collision, ground, ball))
+	{
+		ball->set_velocity_x(0);
+		ball->set_velocity_y(0);
+		ball->set_acceleration_y(0);
+	}
+	m_state->sim_running = SIM_STATE_PAUSED;
+}
+
+void CMySimulation::UpdateCatchrateUI()
+{
+	char message[100];
+	if (m_s_catchrate)
+		SDL_FreeSurface(m_s_catchrate);
+	snprintf(message, 100, "Trials:%lu Caught:%lu", m_state->trials, m_catch);
+	m_s_catchrate = TTF_RenderText_Solid(m_fontSans, message, White);
+}
+
+void CMySimulation::UpdateSensorUI(uint32_t i, uint64_t x_pos, uint64_t y_pos)
+{
+	char message[100];
+	if (m_s_sensors[i])
+	{
+		SDL_FreeSurface(m_s_sensors[i]);
+		m_s_sensors[i] = NULL;
+	}
+
+	if (m_sensors[i])
+	{
+		snprintf(message, 100, "%s x:%lu y:%lu", m_sensors[i]->name(), x_pos, y_pos);
+		m_s_sensors[i] = TTF_RenderText_Solid(m_fontSans, message, White);
+	}
+}

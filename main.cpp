@@ -20,9 +20,14 @@ using namespace std;
 
 #define TARGET_FRAMERATE 30
 
+#ifndef VERSION
+#error You must define the program version in the 'VERSION' symbol. Try using -DVERSION=<x>
+#endif
+
 static struct option options[] =
 {
   {"rate", required_argument, 0, 'r'},
+  {"tracefile", required_argument, 0, 't'},
   {0, no_argument, 0, 0}
 };
 
@@ -37,6 +42,16 @@ static void DispatchInput(CSimulation *sim)
 	}
 }
 
+static void usage(void)
+{
+	printf("Robot Ballistic Simulator v%u\n", VERSION);
+	printf("Joel Nider <joel@ece.ubc.ca>\n");
+	printf("usage:\n");
+	printf("h: Help - this screen\n");
+	printf("r <int>: 'realtime' mode, causes the simulation to progress independently from the wall clock. Update time is in ns.\n");
+	printf("t <string>: trace log file name. Output the sensor log to this file, in CSV format\n");
+}
+
 int main(int argc, char* argv[])
 {
 	SDL_Window* window = NULL;
@@ -47,19 +62,26 @@ int main(int argc, char* argv[])
 	state.realtime = true;
 	state.update_rate = 80;
 	state.ui_visible = true;
+	state.trace_filename = NULL;
 
 	int c;
 	while (1)
 	{
-		c = getopt_long (argc, argv, "r:", options, 0);
+		c = getopt_long (argc, argv, "hr:t:", options, 0);
 		if (c == -1)
 		break;
 
 		switch (c)
 		{
+		case 'h':
+			usage();
+			return 0;
 		case 'r':
 			state.realtime = false;
 			state.update_rate = atoll(optarg);
+			break;
+		case 't':
+			state.trace_filename = strdup(optarg);
 			break;
 		}
 	}
@@ -100,12 +122,16 @@ int main(int argc, char* argv[])
 	struct timespec prev, now, start, fr_start;
 	unsigned int frame_count;
 
+	if (!state.trace_filename)
+		state.trace_filename = strdup("trace.out");
+
 	while (!state.quit)
 	{
 		frame_count = 0;
 		state.sim_running = SIM_STATE_RUNNING;
 		state.fps_target = 30;
 		state.total_time = 0;
+		state.trials++;
 
 		// Initialize the objects to be simulated
 		CMySimulation sim1;
@@ -161,6 +187,9 @@ int main(int argc, char* argv[])
 			}
 		}
 	}
+
+	if (state.trace_filename)
+		free(state.trace_filename);
 
 	//Destroy window
 	SDL_DestroyWindow(window);

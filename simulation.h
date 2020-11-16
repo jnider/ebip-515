@@ -7,17 +7,23 @@
 #include <list>
 #include <vector>
 
+#define COLLISION 10
+#define OK 0
+#define MAX_TRACER_LENGTH 500
+#define TIME_BETWEEN_TRACES 20000000
+
+#ifdef DEBUG
+#define DEBUG_PRINT printf
+#else
+#define DEBUG_PRINT //
+#endif
+
 enum
 {
 	SIM_STATE_STOPPED,
 	SIM_STATE_RUNNING,
 	SIM_STATE_PAUSED
 };
-
-#define COLLISION 10
-#define OK 0
-#define MAX_TRACER_LENGTH 500
-#define TIME_BETWEEN_TRACES 20000000
 
 class program_state
 {
@@ -28,10 +34,12 @@ public:
 	uint32_t sim_running; // is the simulation allowed to continue
 	uint32_t fps_target; // our target frame rate
 	uint64_t total_time; // total running time of the simulation (ns)
+	uint64_t trials; 		// how many times have we run the simulation (this session)
 	bool quit;				// quit the program
 	uint64_t update_rate; // forced rate (ns) for updating the simulation
 	bool realtime;			// use the wall clock, or update_rate
 	bool ui_visible;		// use graphical mode
+	char *trace_filename; // file to use to record sensor trace
 };
 
 class CSimulation;
@@ -123,11 +131,12 @@ typedef std::list<sim_event*> event_list;
 class CSimulation
 {
 public:
-	CSimulation() : m_state(NULL), m_collision(NULL) {}
+	CSimulation() : m_state(NULL) {}
 	virtual bool Initialize(program_state *state, uint32_t w, uint32_t h);
 	virtual uint64_t UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns);
 	virtual void Draw(SDL_Renderer* r);
 	virtual void HandleEvent(SDL_Event *event) = 0;
+	virtual void OnCollision(uint64_t abs_ns, sim_object *a, sim_object *b)=0;
 	bool who_collided(sim_collision *c, sim_object *a, sim_object *b);
 
 protected:
@@ -139,7 +148,6 @@ protected:
 	uint64_t m_height;
 	obj_list sim_objects;
 	event_list sim_events; // schedule of things that happen, and when
-	sim_collision *m_collision;
 };
 
 
