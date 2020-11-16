@@ -40,6 +40,8 @@ public:
 	bool realtime;			// use the wall clock, or update_rate
 	bool ui_visible;		// use graphical mode
 	char *trace_filename; // file to use to record sensor trace
+	char *tracepath;		// directory containing traces from training
+	bool training;			// training mode means the user controls the robot, and we record the actions to a trace file
 };
 
 class CSimulation;

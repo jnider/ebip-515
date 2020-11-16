@@ -35,7 +35,8 @@ class CMySimulation : public CSimulation
 {
 public:
 	CMySimulation() : robot(NULL), bird(NULL), egg(NULL), player(NULL), ball(NULL), m_fontSans(NULL), m_num_sensors(0),
-		m_sensor_elapsed(0), m_sensor_delay(HZ_TO_NS(SENSOR_FREQUENCY)), m_collision(NULL), m_s_catchrate(NULL), m_catch(0), m_tracefile(NULL)
+		m_sensor_elapsed(0), m_sensor_delay(HZ_TO_NS(SENSOR_FREQUENCY)), m_collision(NULL), m_s_catchrate(NULL), m_catch(0),
+		m_tracefile(NULL), m_s_training(NULL)
 		{};
 	~CMySimulation();
 
@@ -77,6 +78,7 @@ private:
 
 	SDL_Surface* m_s_sensors[MAX_SENSORS]; // ui objects containing sensor text
 	SDL_Surface* m_s_catchrate;
+	SDL_Surface* m_s_training; // message if we are in training mode
 };
 
 

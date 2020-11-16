@@ -26,9 +26,12 @@ using namespace std;
 
 static struct option options[] =
 {
-  {"rate", required_argument, 0, 'r'},
-  {"tracefile", required_argument, 0, 't'},
-  {0, no_argument, 0, 0}
+	{"help", no_argument, 0, 'h'},
+	{"tracefile", required_argument, 0, 'f'},
+	{"tracepath", required_argument, 0, 'p'},
+	{"rate", required_argument, 0, 'r'},
+	{"training", no_argument, 0, 't'},
+	{0, no_argument, 0, 0}
 };
 
 program_state state;
@@ -63,11 +66,13 @@ int main(int argc, char* argv[])
 	state.update_rate = 80;
 	state.ui_visible = true;
 	state.trace_filename = NULL;
+	state.tracepath = NULL;
+	state.training = false;
 
 	int c;
 	while (1)
 	{
-		c = getopt_long (argc, argv, "hr:t:", options, 0);
+		c = getopt_long (argc, argv, "hf:p:r:t", options, 0);
 		if (c == -1)
 		break;
 
@@ -76,12 +81,18 @@ int main(int argc, char* argv[])
 		case 'h':
 			usage();
 			return 0;
+		case 'f':
+			state.trace_filename = strdup(optarg);
+			break;
+		case 'p':
+			state.tracepath = strdup(optarg);
+			break;
 		case 'r':
 			state.realtime = false;
 			state.update_rate = atoll(optarg);
 			break;
 		case 't':
-			state.trace_filename = strdup(optarg);
+			state.training = true;
 			break;
 		}
 	}
@@ -122,8 +133,12 @@ int main(int argc, char* argv[])
 	struct timespec prev, now, start, fr_start;
 	unsigned int frame_count;
 
-	if (!state.trace_filename)
+	if (state.training && !state.trace_filename)
 		state.trace_filename = strdup("trace.out");
+
+	// default to local directory to find trace files
+	if (!state.training && !state.tracepath)
+		state.tracepath = strdup(".");
 
 	while (!state.quit)
 	{

@@ -1,6 +1,7 @@
 #include "mysim.h"
 
 SDL_Color White = {0xFF, 0xF0, 0xF0};
+SDL_Color Red = {0xFF, 0x00, 0x00};
 
 CMySimulation::~CMySimulation()
 {
@@ -62,10 +63,29 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 	AddSensor(robot);
 	DEBUG_PRINT("Capturing sensor data every %lu ns (%lu Hz)\n", m_sensor_delay, 1000000000/m_sensor_delay);
 
-	// open trace file
-	m_tracefile = fopen(state->trace_filename, "w+");
+	if (state->training)
+	{
+		char *tmpstr=NULL;
+		if (asprintf(&tmpstr, "%s/%s", state->tracepath, state->trace_filename))
+		{
+			// open trace file for reading & writing (create or truncate)
+			m_tracefile = fopen(tmpstr, "w+");
+		}
+		if (!m_tracefile)
+			printf("Error opening trace file %s\n", tmpstr);
+		free(tmpstr);
+	}
+	else
+	{
+		// Load previous traces to create an ensemble
+
+	}
 
 	UpdateCatchrateUI();
+
+	if (m_state->training)
+	m_s_training = TTF_RenderText_Solid(m_fontSans, "TRAINING", Red);
+
 	return true;
 }
 
@@ -159,7 +179,9 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 	if (m_sensor_elapsed > m_sensor_delay)
 	{
 		m_sensor_elapsed -= m_sensor_delay;
-		fprintf(m_tracefile, "%010lu", abs_ns);
+
+		if (m_state->training && m_tracefile)
+			fprintf(m_tracefile, "%010lu", abs_ns);
 
 		// read all sensors
 		for (uint64_t i=0; i < m_num_sensors; i++)
@@ -167,13 +189,17 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 			uint64_t x_pos=0, y_pos=0;
 			// read the set of sensors for the controlled agent (robot) and observed agent(s) (person and ball)
 			sensor_read_pos(m_sensors[i], &x_pos, &y_pos);
-			fprintf(m_tracefile, ",%lu,%lu", x_pos, y_pos);
+
+			if (m_state->training && m_tracefile)
+				fprintf(m_tracefile, ",%lu,%lu", x_pos, y_pos);
 
 			// update UI if necessary
 			if (m_state->ui_visible)
 				UpdateSensorUI(i, x_pos, y_pos);
 		}
-		fputs("\n", m_tracefile);
+
+		if (m_state->training && m_tracefile)
+			fputs("\n", m_tracefile);
 
 		// prediction
 
@@ -253,6 +279,17 @@ void CMySimulation::Draw(SDL_Renderer* renderer)
 	{
 		filledCircleColor(renderer, m_collision->x, m_collision->y, 10, 0xFF0F0FE0);
 		filledCircleColor(renderer, m_collision->x, m_collision->y, 5, 0xFF0F0FFF);
+	}
+
+	if (m_state->training)
+	{
+		Message_rect.x = m_width / 2;  //controls the rect's x coordinate 
+		Message_rect.y = m_height - 50; // controls the rect's y coordinte
+		Message_rect.w = 100; // controls the width of the rect
+		Message_rect.h = 40; // controls the height of the rect
+		SDL_Texture* txt = SDL_CreateTextureFromSurface(renderer, m_s_training);
+		SDL_RenderCopy(renderer, txt, NULL, &Message_rect);
+		SDL_DestroyTexture(txt);
 	}
 }
 
