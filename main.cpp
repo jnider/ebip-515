@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
 		state.trace_filename = strdup("trace.out");
 
 	// default to local directory to find trace files
-	if (!state.training && !state.tracepath)
+	if (state.training && !state.tracepath)
 		state.tracepath = strdup(".");
 
 	while (!state.quit)
