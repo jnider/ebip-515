@@ -47,9 +47,13 @@ public:
 class CSimulation;
 typedef void(*event_cb)(CSimulation *s, uint64_t id, uint64_t timestamp);
 
-struct point
+class point
 {
+public:
+	point() : x(0), y(0) {}
 	point(double _x, double _y) : x(_x), y(_y) {}
+
+public:
 	double x;
 	double y;
 };
@@ -57,9 +61,7 @@ struct point
 class sim_object
 {
 public:
-	sim_object(double x, double y) :
-		m_name(NULL), m_pos_x(x), m_pos_y(y), m_velocity_x(0), m_velocity_y(0), m_acceleration_x(0), m_acceleration_y(0), m_scale(10.0),
-		m_tracerLength(0), m_width(1), m_height(1), m_tracer_elapsed_ns(0), m_max_velocity_x(100), m_max_velocity_y(100) { }
+	sim_object(double x, double y, double scale); 
 	virtual void Update(uint64_t nsec);
 	virtual void Draw(SDL_Renderer* renderer);
 	void set_name(const char* name) { m_name = strdup(name); }
@@ -133,7 +135,7 @@ typedef std::list<sim_event*> event_list;
 class CSimulation
 {
 public:
-	CSimulation() : m_state(NULL) {}
+	CSimulation() : m_state(NULL), m_scale(10.0) {}
 	virtual bool Initialize(program_state *state, uint32_t w, uint32_t h);
 	virtual uint64_t UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns);
 	virtual void Draw(SDL_Renderer* r);
@@ -150,6 +152,7 @@ protected:
 	uint64_t m_height;
 	obj_list sim_objects;
 	event_list sim_events; // schedule of things that happen, and when
+	double m_scale;
 };
 
 

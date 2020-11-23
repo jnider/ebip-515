@@ -1,4 +1,6 @@
+#include <dirent.h>
 #include "mysim.h"
+#include "interaction.h"
 
 SDL_Color White = {0xFF, 0xF0, 0xF0};
 SDL_Color Red = {0xFF, 0x00, 0x00};
@@ -27,26 +29,26 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 		return false;
 	}
 
-	ground = new sim_object(0, h-50);
+	ground = new sim_object(0, h-50, m_scale);
 	ground->set_width(w);
 	ground->set_height(50);
 	ground->set_name("ground");
 	sim_objects.push_back(ground);
 
-	robot = new sim_object(100, h-50-50);
+	robot = new sim_object(100, h-50-50, m_scale);
 	robot->set_width(50);
 	robot->set_height(50);
 	robot->set_name("robot");
 	sim_objects.push_back(robot);
 
-	player = new sim_object(25, ground->y() - 100);
+	player = new sim_object(25, ground->y() - 100, m_scale);
 	player->set_width(25);
 	player->set_height(100);
 	player->set_name("player");
 	sim_objects.push_back(player);
 	sim_events.push_back(new sim_event(TIME_BEFORE_EGG, EVENT_THROW_BALL, event_handler));
 /*
-	bird = new sim_object(0, 50);
+	bird = new sim_object(0, 50, m_scale);
 	bird->set_width(20);
 	bird->set_height(10);
 	bird->set_velocity_x(25);
@@ -66,21 +68,34 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 	if (state->training)
 	{
 		char *tmpstr=NULL;
-		if (asprintf(&tmpstr, "%s/%s", state->tracepath, state->trace_filename))
+		for(uint32_t counter = 0; counter < 1000; counter++)
 		{
-			// open trace file for reading & writing (create or truncate)
-			m_tracefile = fopen(tmpstr, "w+");
+			if (!asprintf(&tmpstr, "%s/trace%03u.out", state->tracepath, counter))
+				break;
+
+			m_tracefile = fopen(tmpstr, "r");
+			if (!m_tracefile)
+				break;
+
+			fclose(m_tracefile);
 		}
+
+		// open trace file for reading & writing (create or truncate)
+		m_tracefile = fopen(tmpstr, "w+");
+
 		if (!m_tracefile)
 			printf("Error opening trace file %s\n", tmpstr);
 		else
+		{
+			printf("Using trace file %s\n", tmpstr);
 			fprintf(m_tracefile, "# version %u\n", VERSION);
+		}
 		free(tmpstr);
 	}
 	else
 	{
 		// Load previous traces to create an ensemble
-		//CreateInitialEnsemble();
+		CreateInitialEnsemble();
 	}
 
 	UpdateCatchrateUI();
@@ -100,7 +115,7 @@ void CMySimulation::DropEgg()
 	}
 
 	DEBUG_PRINT("Dropping egg @ %f x %f\n", bird->x(), bird->y());
-	egg = new sim_object(bird->x(), bird->y() + bird->height());
+	egg = new sim_object(bird->x(), bird->y() + bird->height(), m_scale);
 	egg->set_width(20);
 	egg->set_height(20);
 	egg->set_velocity_x(bird->velocity_x());
@@ -129,7 +144,7 @@ void CMySimulation::ThrowBall()
 	uint64_t y = rand() % (MAX_BALL_VELOCITY - MIN_BALL_VELOCITY);
 
 	DEBUG_PRINT("Throwing ball x: %lu y: %lu\n", x, y);
-	ball = new sim_object(player->x() + player->width(), player->y());
+	ball = new sim_object(player->x() + player->width(), player->y(), m_scale);
 	ball->set_width(20);
 	ball->set_height(20);
 	ball->set_velocity_x(x + MIN_BALL_VELOCITY);
@@ -177,6 +192,8 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 {
 	uint64_t ret = CSimulation::UpdateSimulation(abs_ns, elapsed_ns);
 
+	PropagateEnsemble(abs_ns, elapsed_ns);
+
 	// read the sensors
 	if (m_sensor_elapsed > m_sensor_delay)
 	{
@@ -203,7 +220,7 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 		if (m_state->training && m_tracefile)
 			fputs("\n", m_tracefile);
 
-		// prediction
+		MeasurementUpdateEnsemble();
 
 		// movement
 
@@ -432,5 +449,81 @@ void CMySimulation::UpdateSensorUI(uint32_t i, uint64_t x_pos, uint64_t y_pos)
 	{
 		snprintf(message, 100, "%s x:%lu y:%lu", m_sensors[i]->name(), x_pos, y_pos);
 		m_s_sensors[i] = TTF_RenderText_Solid(m_fontSans, message, White);
+	}
+}
+
+int CMySimulation::CreateInitialEnsemble()
+{
+	DIR *d;
+	struct dirent *entry;
+	char *tmpname;
+	FILE *log;
+	uint64_t num_traces = 0;
+	uint64_t avg_length = 0;
+	uint64_t total_length = 0;
+
+	// load traces from the given directory
+	printf("Loading from %s\n", m_state->tracepath);
+	d = opendir(m_state->tracepath);
+	if (d)
+	{
+		while ((entry = readdir(d)) != NULL)
+		{
+			if (strncmp(entry->d_name, "trace", 5) == 0)
+			{
+				if (!asprintf(&tmpname, "%s/%s", m_state->tracepath, entry->d_name))
+					break;
+				printf("%s\n", tmpname);
+				log = fopen(tmpname, "r");
+				CInteraction *interaction = new CInteraction(m_scale);
+				interaction->Load(log);
+				fclose(log);
+				num_traces++;
+
+				// determine the base function set (nonlinear least squares fitting?)
+
+				// cheat by using kinematics (for now)
+				//d = vi * t + (a* t^2)/2
+
+				m_ensemble.push_back(interaction);
+				//printf("Interaction length: %lu\n", interaction->Length());
+				total_length += interaction->Length();
+				m_mu.x += interaction->x();
+				m_mu.y += interaction->y();
+			}
+		}
+		closedir(d);
+	}
+
+	// calculate average interaction length
+	avg_length = total_length / num_traces;
+	printf("Average interaction length: %lu\n", avg_length);
+
+	// calculate mu
+	m_mu.x /= num_traces;
+	m_mu.y /= num_traces;
+	printf("Mu: x=%f y=%f\n", m_mu.x, m_mu.y);
+
+	return 0;
+}
+
+void CMySimulation::PropagateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns)
+{
+	for (ensemble_list::iterator i = m_ensemble.begin(); i != m_ensemble.end(); i++)
+	{
+		// matrix G is the 'constant velocity' model
+		// We don't have a known velocity, but we can estimate the velocity by
+		// calculating the difference
+		(*i);
+	}
+}
+
+void CMySimulation::MeasurementUpdateEnsemble()
+{
+	// transform the ensemble to the measurement space via the non-linear observation
+	// function h(.) along with the deviation of each ensemble member from the sample mean:
+	for (ensemble_list::iterator i = m_ensemble.begin(); i != m_ensemble.end(); i++)
+	{
+		//h(*i) - avg;
 	}
 }

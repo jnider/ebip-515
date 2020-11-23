@@ -1,7 +1,7 @@
 # 2020-11-02 J.Nider
 # apt-get install libsdl2-dev libsdl2-gfx-dev  libsdl2_ttf
 
-CPP_SRC = main.cpp simulation.cpp mysim.cpp
+CPP_SRC = main.cpp simulation.cpp mysim.cpp interaction.cpp
 CPP_OBJS = $(CPP_SRC:%.cpp=%.o)
 OBJS = $(CPP_OBJS)
 

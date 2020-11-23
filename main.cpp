@@ -3,6 +3,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <dirent.h>
 #include <list>
 
 #include "simulation.h"
@@ -27,7 +28,6 @@ using namespace std;
 static struct option options[] =
 {
 	{"help", no_argument, 0, 'h'},
-	{"tracefile", required_argument, 0, 'f'},
 	{"tracepath", required_argument, 0, 'p'},
 	{"rate", required_argument, 0, 'r'},
 	{"training", no_argument, 0, 't'},
@@ -48,11 +48,13 @@ static void DispatchInput(CSimulation *sim)
 static void usage(void)
 {
 	printf("Robot Ballistic Simulator v%u\n", VERSION);
-	printf("Joel Nider <joel@ece.ubc.ca>\n");
+	printf("2020 Joel Nider <joel@ece.ubc.ca>\n");
 	printf("usage:\n");
+	printf("sim [options]\n\n");
 	printf("h: Help - this screen\n");
+	printf("p <string>: Path to directory containing log files\n");
 	printf("r <int>: 'realtime' mode, causes the simulation to progress independently from the wall clock. Update time is in ns.\n");
-	printf("t <string>: trace log file name. Output the sensor log to this file, in CSV format\n");
+	printf("t: Run simulator in training mode (user controls robot with the keyboard)\n");
 }
 
 int main(int argc, char* argv[])
@@ -72,7 +74,7 @@ int main(int argc, char* argv[])
 	int c;
 	while (1)
 	{
-		c = getopt_long (argc, argv, "hf:p:r:t", options, 0);
+		c = getopt_long (argc, argv, "hp:r:t", options, 0);
 		if (c == -1)
 		break;
 
@@ -81,9 +83,6 @@ int main(int argc, char* argv[])
 		case 'h':
 			usage();
 			return 0;
-		case 'f':
-			state.trace_filename = strdup(optarg);
-			break;
 		case 'p':
 			state.tracepath = strdup(optarg);
 			break;
@@ -99,6 +98,15 @@ int main(int argc, char* argv[])
 
 	// initialize random number generator
 	srand(time(NULL));
+
+	// try to open the trace directory
+	DIR *d = opendir(state.tracepath);
+	if (!d)
+	{
+		printf("Can't open trace directory '%s'\n", state.tracepath);
+		return -2;
+	}
+	closedir(d);
 
 	//Initialize SDL
 	if( SDL_Init( SDL_INIT_VIDEO ) < 0 )
@@ -136,11 +144,8 @@ int main(int argc, char* argv[])
 	struct timespec prev, now, start, fr_start;
 	unsigned int frame_count;
 
-	if (state.training && !state.trace_filename)
-		state.trace_filename = strdup("trace.out");
-
 	// default to local directory to find trace files
-	if (state.training && !state.tracepath)
+	if (!state.tracepath)
 		state.tracepath = strdup(".");
 
 	while (!state.quit)

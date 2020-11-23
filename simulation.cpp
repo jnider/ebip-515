@@ -1,5 +1,11 @@
 #include "simulation.h"
 
+sim_object::sim_object(double x, double y, double scale) :
+		m_name(NULL), m_pos_x(x), m_pos_y(y), m_velocity_x(0), m_velocity_y(0), m_acceleration_x(0), m_acceleration_y(0), m_scale(scale),
+		m_tracerLength(0), m_width(1), m_height(1), m_tracer_elapsed_ns(0), m_max_velocity_x(100), m_max_velocity_y(100)
+{
+}
+
 void sim_object::Draw(SDL_Renderer* renderer)
 {
 	SDL_Rect rect;

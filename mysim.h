@@ -2,6 +2,7 @@
 #define  _MYSIM__H
 
 #include "simulation.h"
+#include "interaction.h"
 
 #define HZ_TO_NS(_hz)				(1000000000UL/_hz)
 #define SECONDS_TO_NS(_n)			(1000000000UL * _n)
@@ -17,6 +18,8 @@
 
 #define TIME_COLLISIONS_VISIBLE	SECONDS_TO_NS(1)
 #define TIME_BEFORE_EGG				SECONDS_TO_NS(3)
+
+typedef std::list<CInteraction*> ensemble_list;
 
 enum
 {
@@ -56,6 +59,10 @@ protected:
 	void UpdateCatchrateUI();
 	void UpdateSensorUI(uint32_t i, uint64_t x_pos, uint64_t y_pos);
 
+	int CreateInitialEnsemble();
+	void PropagateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns);
+	void MeasurementUpdateEnsemble();
+
 public:
 	bool display_sensors; // should we display the sensor readings on-screen
 
@@ -79,6 +86,9 @@ private:
 	SDL_Surface* m_s_sensors[MAX_SENSORS]; // ui objects containing sensor text
 	SDL_Surface* m_s_catchrate;
 	SDL_Surface* m_s_training; // message if we are in training mode
+	ensemble_list m_ensemble;
+
+	point m_mu;
 };
 
 
