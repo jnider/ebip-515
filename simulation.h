@@ -129,6 +129,14 @@ struct sim_collision
 	bool draw; // should we draw on the ui where this collision occurred
 };
 
+struct measurement
+{
+	uint64_t timestamp;
+	point player;
+	point ball;
+	point robot;
+};
+
 typedef std::list<sim_object*> obj_list;
 typedef std::list<sim_event*> event_list;
 

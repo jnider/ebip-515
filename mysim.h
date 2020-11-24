@@ -7,9 +7,9 @@
 #define HZ_TO_NS(_hz)				(1000000000UL/_hz)
 #define SECONDS_TO_NS(_n)			(1000000000UL * _n)
 
+#define MAX_ENSEMBLE_MEMBERS		10
 #define GRAVITY 						9.81
 #define SENSOR_FREQUENCY			60
-#define MAX_SENSORS					10
 #define MIN_BALL_VELOCITY			10
 #define MAX_BALL_VELOCITY			35
 #define ROBOT_VELOCITY				50
@@ -18,6 +18,7 @@
 
 #define TIME_COLLISIONS_VISIBLE	SECONDS_TO_NS(1)
 #define TIME_BEFORE_EGG				SECONDS_TO_NS(3)
+#define TIME_BEFORE_BALL			SECONDS_TO_NS(2)
 
 typedef std::list<CInteraction*> ensemble_list;
 
@@ -55,13 +56,14 @@ public:
 	void OnCollision(uint64_t abs_ns, sim_object *a, sim_object *b);
 
 protected:
-	bool AddSensor(sim_object *s);
+	bool AddSensor(uint64_t index, sim_object *s);
 	void UpdateCatchrateUI();
 	void UpdateSensorUI(uint32_t i, uint64_t x_pos, uint64_t y_pos);
 
 	int CreateInitialEnsemble();
 	void PropagateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns);
 	void MeasurementUpdateEnsemble();
+	int ExtractState(double *x, double *y);
 
 public:
 	bool display_sensors; // should we display the sensor readings on-screen
@@ -89,6 +91,10 @@ private:
 	ensemble_list m_ensemble;
 
 	point m_mu;
+	double m_phase; // current state of trial (in percent)
+	double m_phase_velocity_ms; // how fast we are moving through the trial (percent per millisecond)
+	double mu_ball_x;
+	double mu_ball_y;
 };
 
 
