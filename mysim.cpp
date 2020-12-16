@@ -2,25 +2,94 @@
 #include "mysim.h"
 #include "interaction.h"
 
+#define NUM_SAMPLES_TRAJECTORY 1000
+#define GROUND_HEIGHT 50
+#define ROBOT_HEIGHT 50
+#define PLAYER_HEIGHT 100
+
 SDL_Color White = {0xFF, 0xF0, 0xF0};
 SDL_Color Red = {0xFF, 0x00, 0x00};
 
-// Multiply an n x m matrix with an m x n matrix to produce an n x n matrix
-static void MultiplyMatrix(double *A, double *B, double *C, int n, int m)
+// Multiply an n x m matrix with an m x l matrix to produce an n x l matrix
+static void MultiplyMatrix(double *A, double *B, double *C, int n, int m, int l)
 {
    int i,j,k;
    for (i=0; i < n; i++)
    {
-      for (j=0; j < n; j++)
+      for (j=0; j < l; j++)
       {
          for (k=0; k < m; k++)
 			{
             C[i*n + j] +=  A[i*m + k] * B[k*n + j];
-				//printf("C[%i][%i]: A[%i][%i]%f x B[%i][%i]%f = %f\n", i, j, i, k, A[i*m + k], k, j, B[k*n + j], C[i*n + j]);
 			}
       }
    }
 }
+
+static void DivideMatrix(double *A, double scalar, int n, int m)
+{
+   int i,j,k;
+
+	if (scalar == 0)
+		return;
+
+   for (i=0; i < n; i++)
+      for (j=0; j < m; j++)
+			A[i*n + j] /= scalar;
+}
+
+static void TransposeMatrix(double *A, double *B, int n, int m)
+{
+	for (int i=0; i < n; i++)
+		for (int j=0; j < m; j++)
+			B[j*n + i] = A[i*m + j];
+}
+
+// must be square (n x n)
+// Inversion function borrowed from:
+// https://stackoverflow.com/questions/32043346/square-matrix-inversion-in-c
+static void InvertMatrix(double *A, double *B, int n)
+{
+	// set up matrix B with the identity matrix
+	int i, j, k;
+	double ratio, a;
+
+	for (i=0; i < n; i++)
+	{
+		for (j=0; j < n; j++)
+		{
+			if (i == j)
+				B[i*n + j] = 1;
+			else
+				B[i*n + j] = 0;
+		}
+	}
+
+	float temp;
+  for(k=0;k<n;k++)                                  //by some row operations,and the same row operations of
+    {                                                       //Unit mat. I gives the inverse of matrix A
+        temp=A[k*n + k];                   //'temp'  
+        // stores the A[k][k] value so that A[k][k]  will not change
+        for(j=0;j<n;j++)      //during the operation //A[i] //[j]/=A[k][k]  when i=j=k
+        {
+            A[k*n + j]/=temp;                                  //it performs // the following row operations to make A to unit matrix
+            B[k*n + j]/=temp;                                  //R0=R0/A[0][0],similarly for I also R0=R0/A[0][0]
+        }                                                   //R1=R1-R0*A[1][0] similarly for I
+
+        for(i=0;i<n;i++)                              //R2=R2-R0*A[2][0]      ,,
+        {
+            temp=A[i*n + k];                       //R1=R1/A[1][1]
+            for(j=0;j<n;j++)             //R0=R0-R1*A[0][1]
+            {                                   //R2=R2-R1*A[2][1]
+                if(i==k)
+                    break;                      //R2=R2/A[2][2]
+                A[i*n + j]-= A[k*n+j]*temp;          //R0=R0-R2*A[0][2]
+                B[i*n + j]-= B[k*n+j]*temp;          //R1=R1-R2*A[1][2]
+            }
+        }
+    }
+}
+
 void print_matrix_double(double *A, int n, int m)
 {
    int i,j,k;
@@ -35,6 +104,12 @@ void print_matrix_double(double *A, int n, int m)
 	putc('\n', stdout);
 }
 
+CMySimulation::CMySimulation() : robot(NULL), bird(NULL), egg(NULL), player(NULL), ball(NULL), m_fontSans(NULL), m_num_sensors(0),
+		m_sensor_elapsed(0), m_sensor_delay(HZ_TO_NS(SENSOR_FREQUENCY)), m_collision(NULL), m_s_catchrate(NULL), m_catch(0),
+		m_tracefile(NULL), m_s_training(NULL), m_avg_trajectory(NULL)
+{
+}
+
 CMySimulation::~CMySimulation()
 {
 	if (m_tracefile)
@@ -47,10 +122,13 @@ CMySimulation::~CMySimulation()
 
 bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 {
-	//DEBUG_PRINT("%s\n", __PRETTY_FUNCTION__);
+	DEBUG_PRINT("%s\n", __PRETTY_FUNCTION__);
 
 	if (!CSimulation::Initialize(state, w, h))
 		return false;
+
+	// set number of threads
+	//openblas_set_num_threads(2);
 
 	m_fontSans = TTF_OpenFont("/usr/share/fonts/truetype/open-sans/OpenSans-Regular.ttf", 24);
 	if (!m_fontSans)
@@ -59,21 +137,21 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 		return false;
 	}
 
-	ground = new sim_object(0, h-50, m_scale);
+	ground = new sim_object(w/2, h-(GROUND_HEIGHT/2), m_scale);
 	ground->set_width(w);
-	ground->set_height(50);
+	ground->set_height(GROUND_HEIGHT);
 	ground->set_name("ground");
 	sim_objects.push_back(ground);
 
-	robot = new sim_object(100, h-50-50, m_scale);
+	robot = new sim_object(100/2, ground->y()-(ground->height()/2)-(ROBOT_HEIGHT/2), m_scale);
 	robot->set_width(50);
-	robot->set_height(50);
+	robot->set_height(ROBOT_HEIGHT);
 	robot->set_name("robot");
 	sim_objects.push_back(robot);
 
-	player = new sim_object(25, ground->y() - 100, m_scale);
+	player = new sim_object(25/2, ground->y()-(ground->height()/2)-(PLAYER_HEIGHT/2), m_scale);
 	player->set_width(25);
-	player->set_height(100);
+	player->set_height(PLAYER_HEIGHT);
 	player->set_name("player");
 	sim_objects.push_back(player);
 	sim_events.push_back(new sim_event(TIME_BEFORE_BALL, EVENT_THROW_BALL, event_handler));
@@ -224,8 +302,8 @@ void CMySimulation::event_handler(CSimulation *s, uint64_t eventID, uint64_t tim
 
 uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 {
-	uint64_t x_pos[MAX_SENSORS];
-	uint64_t y_pos[MAX_SENSORS];
+	//uint64_t x_pos[MAX_SENSORS];
+	//uint64_t y_pos[MAX_SENSORS];
 
 	uint64_t ret = CSimulation::UpdateSimulation(abs_ns, elapsed_ns);
 
@@ -239,15 +317,12 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 		// read the sensors
 		for (uint64_t i=0; i < m_num_sensors; i++)
 		{
-			// read the set of sensors for the controlled agent (robot) and observed agent(s) (person and ball)
-			sensor_read_pos(m_sensors[i], &x_pos[i], &y_pos[i]);
-
 			if (m_state->training && m_tracefile)
-				fprintf(m_tracefile, ",%lu,%lu", x_pos[i], y_pos[i]);
+				fprintf(m_tracefile, ",%lu,%lu", (uint64_t)m_sensors[i]->x(), (uint64_t)m_sensors[i]->y());
 
 			// update UI if necessary
 			if (m_state->ui_visible)
-				UpdateSensorUI(i, x_pos[i], y_pos[i]);
+				UpdateSensorUI(i, m_sensors[i]->x(), m_sensors[i]->y());
 		}
 
 		if (m_state->training && m_tracefile)
@@ -255,35 +330,29 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 
 		// update the model
 		if (!m_state->training)
-			PropagateEnsemble(abs_ns, elapsed_ns);
-
-		// measurement update
-		if (!m_state->training)
-			MeasurementUpdateEnsemble();
+			UpdateEnsemble(abs_ns, elapsed_ns);
 
 		// movement
 		if (!m_state->training)
 		{
-			double mu_x, mu_y;
-			ExtractState(&mu_x, &mu_y);
-			printf("Moving: %f %lu", mu_ball_x, x_pos[SENSOR_ROBOT]);
-			if (mu_ball_x > x_pos[SENSOR_ROBOT])
+			printf("Robot predicted=%f actual=%f\n", m_predicted_state[STATE_VAR_ROBOT_X], m_sensors[SENSOR_ROBOT]->x());
+			if (m_predicted_state[STATE_VAR_ROBOT_X] > m_sensors[SENSOR_ROBOT]->x())
 			{
-				printf("right\n");
 				RobotMove(DIR_RIGHT);
 			}
 
-			if (mu_ball_x < x_pos[SENSOR_ROBOT])
+			if (m_predicted_state[STATE_VAR_ROBOT_X] < m_sensors[SENSOR_ROBOT]->x())
 			{
-				printf("right\n");
 				RobotMove(DIR_LEFT);
 			}
 
 			// don't let the robot run into the player
-			if (x_pos[SENSOR_ROBOT] < (x_pos[SENSOR_PLAYER] + 100))
+			//printf("Robot vel: %f x:%f player x: %f player width: %f\n", robot->velocity_x(), robot->x(), player->x(), player->width());
+			if ((robot->velocity_x() < 1) && robot->x() < (player->x() + player->width() + 25))
+			{
 				RobotMove(DIR_STOP);
+			}
 		}
-
 	}
 	else
 	{
@@ -304,6 +373,7 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 
 void CMySimulation::RobotMove(uint64_t direction)
 {
+	//printf("Robot moving %lu\n", direction);
 	switch (direction)
 	{
 	case DIR_RIGHT:
@@ -322,9 +392,32 @@ void CMySimulation::RobotMove(uint64_t direction)
 
 void CMySimulation::Draw(SDL_Renderer* renderer)
 {
+	SDL_Rect Message_rect; //create a rect
+
 	CSimulation::Draw(renderer);
 
-	SDL_Rect Message_rect; //create a rect
+	// draw the average trajectory
+	if (!m_state->training)
+	{
+		for (unsigned int index = 0; index < NUM_SAMPLES_TRAJECTORY; index++)
+		{
+			filledCircleColor(renderer,
+				m_avg_trajectory[NUM_SAMPLES_TRAJECTORY * STATE_VAR_BALL_X + index],
+				m_avg_trajectory[NUM_SAMPLES_TRAJECTORY * STATE_VAR_BALL_Y + index],
+				5, 0x1010A010);
+		}
+	}
+
+	// draw predicted location of ball
+	if (!m_state->training)
+	{
+		unsigned int color = 0x0000FFFF | 0xFF000000;
+		filledCircleColor(renderer,
+			m_predicted_state[STATE_VAR_BALL_X],
+			m_predicted_state[STATE_VAR_BALL_Y],
+			5, color);
+	}
+
 	if (display_sensors)
 	{
 		Message_rect.x = m_width - 220;  //controls the rect's x coordinate 
@@ -360,12 +453,6 @@ void CMySimulation::Draw(SDL_Renderer* renderer)
 		filledCircleColor(renderer, m_collision->x, m_collision->y, 5, 0xFF0F0FFF);
 	}
 
-	// draw the average estimate
-	if (!m_state->training)
-	{
-		filledCircleColor(renderer, mu_ball_x, mu_ball_y, 10, 0x100F10E0);
-	}
-
 	if (m_state->training)
 	{
 		Message_rect.x = m_width / 2;  //controls the rect's x coordinate 
@@ -382,7 +469,11 @@ bool CMySimulation::sensor_read_pos(sim_object *obj, uint64_t *x, uint64_t *y)
 {
 	int x_noise = 0, y_noise = 0;
 	if (!obj)
+	{
+		*x = 0;
+		*y = 0;
 		return false;
+	}
 
 	if (MAX_SENSOR_NOISE)
 	{
@@ -462,8 +553,8 @@ void CMySimulation::OnCollision(uint64_t abs_ns, sim_object *a, sim_object *b)
 	m_collision = new sim_collision;
 	m_collision->a = a;
 	m_collision->b = b;
-	m_collision->x = a->x() + a->width()/2;
-	m_collision->y = a->y() + a->height()/2;
+	m_collision->x = (a->x() + b->x()) / 2;
+	m_collision->y = (a->y() + b->y()) / 2;
 	m_collision->timestamp = abs_ns;
 	m_collision->draw = true;
 
@@ -477,7 +568,7 @@ void CMySimulation::OnCollision(uint64_t abs_ns, sim_object *a, sim_object *b)
 		// if the ball landed on top of the robot, call it a 'catch'
 		//DEBUG_PRINT("Bottom of ball: %f\n", ball->y() + ball->height());
 		//DEBUG_PRINT("Top of robot: %f\n", robot->y());
-		if (ball->y() + ball->height() - robot->y() < CATCH_TOLERANCE)
+		if (ball->y() + ball->height()/2 - robot->y()/2 < CATCH_TOLERANCE)
 		{
 			DEBUG_PRINT("catch! %s (%f)\n", m_collision->a->name(), ball->y() + ball->height() - robot->y());
 			m_catch++;
@@ -526,7 +617,11 @@ int CMySimulation::CreateInitialEnsemble()
 	FILE *log;
 	uint64_t num_traces = 0;
 	uint64_t avg_length = 0;
-	uint64_t total_length = 0;
+
+	printf("%s\n", __func__);
+
+	// Initialize a BIP instance
+	m_primitive = new BIP();
 
 	// load traces from the given directory
 	printf("Loading from %s\n", m_state->tracepath);
@@ -544,129 +639,112 @@ int CMySimulation::CreateInitialEnsemble()
 				CInteraction *interaction = new CInteraction(m_scale);
 				interaction->Load(log);
 				fclose(log);
+				m_primitive->add_demonstration(interaction);
 				num_traces++;
 
-				// determine the base function set (nonlinear least squares fitting?, linear least squares)
-				// the functions are time-dependent, where 'time' refers to the phase
-
-				m_ensemble.push_back(interaction);
-				//printf("Interaction length: %lu\n", interaction->Length());
-				total_length += interaction->Length();
-
-				if (m_ensemble.size() == MAX_ENSEMBLE_MEMBERS)
+				// for now, stop reading after we have enough members. Later, update this to sample members at random
+				if (num_traces == NUM_ENSEMBLE_MEMBERS)
 					break;
 			}
 		}
 		closedir(d);
 	}
 
-	// calculate average interaction length
-	avg_length = total_length / num_traces;
-	printf("Average interaction length: %lu\n", avg_length);
+	if (num_traces < NUM_ENSEMBLE_MEMBERS)
+	{
+		printf("ERROR: not enough trials for %u ensemble members\n", NUM_ENSEMBLE_MEMBERS);
+		return -1;
+	}
 
-	// calculate mu
-	//m_mu.x /= num_traces;
-	//m_mu.y /= num_traces;
-	//printf("Mu: x=%f y=%f\n", m_mu.x, m_mu.y);
+	// Compute the phase mean and phase velocities from the demonstrations.
+	double phase_velocity_mean;
+	double phase_velocity_var;
+	m_primitive->get_phase_stats(&phase_velocity_mean, &phase_velocity_var);
+	printf("Phase velocity mean: %f %%/ms  Variance: %f\n", phase_velocity_mean*100, phase_velocity_var);
 
-	// set initial phase to 0
-	m_phase = 0;
-	printf("Initial phase: %f\n", m_phase);
+	//m_filter = new EnsembleKalmanFilter(m_primitive);
+	//m_primitive->set_filter(m_filter);
+	m_avg_trajectory = m_primitive->get_mean_trajectory(NUM_SAMPLES_TRAJECTORY);
+	//print_matrix_double(m_avg_trajectory, NUM_STATE_VARIABLES, NUM_SAMPLES_TRAJECTORY);
 
-	// initial phase velocity is based on the average of the velocities of the demonstrations
-	m_phase_velocity_ms = (double)1000000/(double)avg_length;
-	printf("Initial phase velocity: %f ms\n", m_phase_velocity_ms);
+	// set initial estimated state to average of demonstrations
+	memcpy(m_est_state, &m_avg_trajectory[0], sizeof(double) * NUM_STATE_VARIABLES);
+	m_est_state[STATE_VAR_PHASE_VEL] = phase_velocity_mean;
 
 	return 0;
 }
 
-void CMySimulation::PropagateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns)
+// Motion update step
+// Rather than multiplying by the A matrix, just read the next set of values at this phase
+void CMySimulation::UpdateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns)
 {
-	mu_ball_x = 0;
-	mu_ball_y = 0;
+	double *mean = (double *)calloc(sizeof(double), NUM_STATE_VARIABLES);
+	double var;
 
-	//printf("Propagating at time %lu ns, (%lu members)\n", abs_ns, m_ensemble.size());
+	printf("$ PHASE : %f %f\n", m_est_state[STATE_VAR_PHASE], m_est_state[STATE_VAR_PHASE_VEL]);
+	printf("$ BALL : %f %f\n", m_est_state[STATE_VAR_BALL_X], m_est_state[STATE_VAR_BALL_Y]);
+	printf("$ ROBOT : %f\n", m_est_state[STATE_VAR_ROBOT_X]);
 
 	// calculate our relative phase based on the current estimation of phase velocity
-	m_phase = ((double)abs_ns/1000000) * m_phase_velocity_ms;
+	double nextPhase = ((double)abs_ns * m_est_state[STATE_VAR_PHASE_VEL])/(double)1000000;
 
-	if (m_phase > 1)
+	if (nextPhase > 1)
 	{
 		printf("Warning: error in phase velocity estimation\n");
-		return;
+		nextPhase = 1;
 	}
 
-	unsigned int count = 0;
-	for (ensemble_list::iterator i = m_ensemble.begin(); i != m_ensemble.end(); i++)
-	{
-		double x=0, y=0;
+	// Matrix of dimension D x D containing the observation noise.
+	//observation_noise = np.diag([10000.0, train_noise_std ** 2]);
 
-		// calculate current position according to model
-		(*i)->nonlinear_fn(m_phase, SENSOR_BALL, &x, &y);
-		if (x > 0 || y > 0)
+	// Matrix of dimension D x T containing a demonstration, where T is the number of timesteps and D is the dimension of the measurement space.
+
+	printf("Propagating at time %lu ns (phase %f)\n", abs_ns, nextPhase);
+/*
+	double *gen_trajectory = m_primitive->generate_probable_trajectory_recursive(trajectory, observation_noise, active_dofs, num_samples,
+		1, &phase, mean, &var);
+
+	free(gen_trajectory);
+*/
+
+	//m_primitive->get_ensemble_at(next_phase, nextState);
+
+	// read the set of sensors for the controlled agent (robot) and observed agent(s) (person and ball)
+	uint64_t x_pos, y_pos;
+	double sensors[NUM_STATE_VARIABLES];
+	double weights[NUM_STATE_VARIABLES];
+
+	sensor_read_pos(m_sensors[SENSOR_ROBOT], &x_pos, &y_pos);
+	sensors[STATE_VAR_ROBOT_X] = x_pos;
+	//sensors[STATE_VAR_ROBOT_Y] = y_pos;
+	sensor_read_pos(m_sensors[SENSOR_BALL], &x_pos, &y_pos);
+	sensors[STATE_VAR_BALL_X] = x_pos;
+	sensors[STATE_VAR_BALL_Y] = y_pos;
+
+	// set random noise
+	int i,j;
+	for (i=0; i < NUM_STATE_VARIABLES; i++)
+	{
+		for (j=0; j < NUM_STATE_VARIABLES; j++)
 		{
-			//printf("Got x=%f y=%f\n", x, y);
-			mu_ball_x += x;
-			mu_ball_y += y;
-			count++;
+			//m_sensorNoise[i*NUM_STATE_VARIABLES + j] = rand() * 0.00001;
 		}
 	}
+	m_primitive->measurement_update(nextPhase, sensors, m_sensorNoise);
 
-	if (mu_ball_x)
-		mu_ball_x /= count;
-	if (mu_ball_y)
-	{
-		mu_ball_y /= count;
-		printf("[%f]: Ball mu x=%f y=%f\n", m_phase, mu_ball_x, mu_ball_y);
-	}
+	m_primitive->predict_outcome(nextPhase, weights, m_predicted_state);
+
+	//double nextMean[NUM_STATE_VARIABLES];
+	//get_ensemble_mean(nextMean, nextState);
+	m_est_state[STATE_VAR_PHASE] = nextPhase;
+	m_est_state[STATE_VAR_BALL_X] = sensors[STATE_VAR_BALL_X];
+	m_est_state[STATE_VAR_BALL_Y] = sensors[STATE_VAR_BALL_Y];
+	m_est_state[STATE_VAR_ROBOT_X] = sensors[STATE_VAR_ROBOT_X];
+	printf("^ PHASE : %f %f\n", m_est_state[STATE_VAR_PHASE], m_est_state[STATE_VAR_PHASE_VEL]);
+	printf("^ BALL : %f %f\n", m_est_state[STATE_VAR_BALL_X], m_est_state[STATE_VAR_BALL_Y]);
+	printf("^ ROBOT : %f\n", m_est_state[STATE_VAR_ROBOT_X]);
+	printf("> PHASE : %f %f\n", m_predicted_state[STATE_VAR_PHASE], m_predicted_state[STATE_VAR_PHASE_VEL]);
+	printf("> BALL : %f %f\n", m_predicted_state[STATE_VAR_BALL_X], m_predicted_state[STATE_VAR_BALL_Y]);
+	printf("> ROBOT : %f\n", m_predicted_state[STATE_VAR_ROBOT_X]);
 }
 
-void CMySimulation::MeasurementUpdateEnsemble()
-{
-	double *deviation = (double *)calloc(sizeof(double), MAX_ENSEMBLE_MEMBERS * 1);
-	double *deviationT = (double *)calloc(sizeof(double), 1 * MAX_ENSEMBLE_MEMBERS);
-	double *S = (double *)calloc(sizeof(double), MAX_ENSEMBLE_MEMBERS * MAX_ENSEMBLE_MEMBERS);
-
-	// transform the ensemble to the measurement space via the non-linear observation
-	// function h(.) along with the deviation of each ensemble member from the sample mean:
-
-	
-	unsigned int count = 0;
-	for (ensemble_list::iterator i = m_ensemble.begin(); i != m_ensemble.end(); i++)
-	{
-		double x=0, y=0;
-		// this should be saved in the previous step as HtXt-1
-		(*i)->nonlinear_fn(m_phase, SENSOR_BALL, &x, &y);
-		deviation[count] = x - mu_ball_x;
-		//deviation[count][SENSOR_BALL].y = y - mu_ball_y;
-		//printf("dev x: %f=%f\n", x, deviation[count]);
-		count++;
-	}
-
-	// transpose the deviation
-	for (int i=0; i < MAX_ENSEMBLE_MEMBERS; i++)
-	{
-		for (int j=0; j < 1; j++)
-		{
-			//printf("Setting row=%u column=%u (offset %u)\n", j, i, j * MAX_ENSEMBLE_MEMBERS + i);
-			//printf("From row=%u column=%u (offset %u)\n", i, j, i * 1 + j);
-			deviationT[j*MAX_ENSEMBLE_MEMBERS + i] = deviation[i*1 + j];
-		}
-	}
-
-	//printf("deviation:\n");
-	//print_matrix_double(deviation, MAX_ENSEMBLE_MEMBERS, 1);
-	//printf("deviationT:\n");
-	//print_matrix_double(deviationT, 1, MAX_ENSEMBLE_MEMBERS);
-
-	// calculate the innovation covariance directly from the ensemble
-	//S = deviation * deviation_transpose / (m_ensemble.size() - 1) + Rt;
-	MultiplyMatrix(deviation, deviationT, S, MAX_ENSEMBLE_MEMBERS, 1);
-	print_matrix_double(S, MAX_ENSEMBLE_MEMBERS,MAX_ENSEMBLE_MEMBERS);
-
-}
-
-int CMySimulation::ExtractState(double *x, double *y)
-{
-	return 0;
-}

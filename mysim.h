@@ -3,24 +3,23 @@
 
 #include "simulation.h"
 #include "interaction.h"
+#include "enkf.h"
+#include "bip.h"
 
 #define HZ_TO_NS(_hz)				(1000000000UL/_hz)
 #define SECONDS_TO_NS(_n)			(1000000000UL * _n)
 
-#define MAX_ENSEMBLE_MEMBERS		10
 #define GRAVITY 						9.81
 #define SENSOR_FREQUENCY			60
 #define MIN_BALL_VELOCITY			10
 #define MAX_BALL_VELOCITY			35
-#define ROBOT_VELOCITY				50
+#define ROBOT_VELOCITY				40
 #define MAX_SENSOR_NOISE			0
 #define CATCH_TOLERANCE				1.000
 
 #define TIME_COLLISIONS_VISIBLE	SECONDS_TO_NS(1)
 #define TIME_BEFORE_EGG				SECONDS_TO_NS(3)
 #define TIME_BEFORE_BALL			SECONDS_TO_NS(2)
-
-typedef std::list<CInteraction*> ensemble_list;
 
 enum
 {
@@ -38,10 +37,7 @@ enum
 class CMySimulation : public CSimulation
 {
 public:
-	CMySimulation() : robot(NULL), bird(NULL), egg(NULL), player(NULL), ball(NULL), m_fontSans(NULL), m_num_sensors(0),
-		m_sensor_elapsed(0), m_sensor_delay(HZ_TO_NS(SENSOR_FREQUENCY)), m_collision(NULL), m_s_catchrate(NULL), m_catch(0),
-		m_tracefile(NULL), m_s_training(NULL)
-		{};
+	CMySimulation();
 	~CMySimulation();
 
 	bool Initialize(program_state *state, uint32_t w, uint32_t h);
@@ -61,9 +57,7 @@ protected:
 	void UpdateSensorUI(uint32_t i, uint64_t x_pos, uint64_t y_pos);
 
 	int CreateInitialEnsemble();
-	void PropagateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns);
-	void MeasurementUpdateEnsemble();
-	int ExtractState(double *x, double *y);
+	void UpdateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns);
 
 public:
 	bool display_sensors; // should we display the sensor readings on-screen
@@ -88,13 +82,13 @@ private:
 	SDL_Surface* m_s_sensors[MAX_SENSORS]; // ui objects containing sensor text
 	SDL_Surface* m_s_catchrate;
 	SDL_Surface* m_s_training; // message if we are in training mode
-	ensemble_list m_ensemble;
 
-	point m_mu;
-	double m_phase; // current state of trial (in percent)
-	double m_phase_velocity_ms; // how fast we are moving through the trial (percent per millisecond)
-	double mu_ball_x;
-	double mu_ball_y;
+	double m_sensorNoise[NUM_STATE_VARIABLES * NUM_STATE_VARIABLES];
+	double m_est_state[NUM_STATE_VARIABLES];
+	double m_predicted_state[NUM_STATE_VARIABLES];
+	EnsembleKalmanFilter* m_filter;
+	BIP *m_primitive;
+	double *m_avg_trajectory;
 };
 
 

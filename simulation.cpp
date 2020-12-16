@@ -9,8 +9,8 @@ sim_object::sim_object(double x, double y, double scale) :
 void sim_object::Draw(SDL_Renderer* renderer)
 {
 	SDL_Rect rect;
-	rect.x = m_pos_x;
-	rect.y = m_pos_y;
+	rect.x = m_pos_x - m_width/2;
+	rect.y = m_pos_y - m_height/2;
 	rect.w = m_width;
 	rect.h = m_height;
 	//printf("%s x=%u y=%u\n", __PRETTY_FUNCTION__, m_rect.x, m_rect.y); // __METHOD_NAME__
@@ -141,25 +141,9 @@ bool CSimulation::CheckForCollision(uint64_t abs_ns)
 			{
 				sim_object *a = *i;
 				sim_object *b = *j;
-/*
-				if (strcmp(a->name(), "robot") == 0 && strcmp(b->name(), "ball") == 0)
-				{
-					printf("-- checking collision between %s and %s\n", a->name(), b->name());
-					printf("%s x: %f-%f\n", a->name(), a->x(), a->x() + a->width());
-					printf("%s x: %f-%f\n", b->name(), b->x(), b->x() + b->width());
-					printf("%s y: %f-%f\n", a->name(), a->y(), a->y() + a->height());
-					printf("%s y: %f-%f\n", b->name(), b->y(), b->y() + b->height());
-				}
-*/
 
-/*
-				if ((a->x() > b->x() && a->x() < (b->x() + b->width()) ||
-					(a->x() + a->width()) > b->x() && (a->x() + a->width()) < (b->x() + b->width())) &&
-					(a->y() > b->y() && a->y() < (b->y() + b->height()) ||
-					((a->y() + a->height()) > b->y() && (a->y() + a->height()) < (b->y() + b->height()))))
-*/
-				if (!(a->x() >= b->x() + b->width() || b->x() >= a->x() + a->width()) && 
-					(!(a->y() >= b->y() + b->height() || b->y() >= a->y() + a->height())))
+				if (!((a->x()-(a->width()/2)) >= (b->x() + (b->width()/2)) || (b->x()-(b->width()/2)) >= (a->x() + a->width()/2)) && 
+					(!((a->y()-(a->height()/2)) >= (b->y() + b->height()/2)) || ((b->y()-(b->height()/2)) >= (a->y() + a->height()/2))))
 				{
 					OnCollision(abs_ns, *i, *j);
 					printf("%s collided with %s\n", (*i)->name(), (*j)->name());

@@ -97,7 +97,7 @@ int main(int argc, char* argv[])
 	}
 
 	// initialize random number generator
-	srand(time(NULL));
+	//srand(time(NULL));
 
 	// try to open the trace directory
 	DIR *d = opendir(state.tracepath);
