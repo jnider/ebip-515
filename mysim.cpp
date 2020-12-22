@@ -2,10 +2,11 @@
 #include "mysim.h"
 #include "interaction.h"
 
-#define NUM_SAMPLES_TRAJECTORY 1000
+#define NUM_SAMPLES_TRAJECTORY 100
 #define GROUND_HEIGHT 50
 #define ROBOT_HEIGHT 50
 #define PLAYER_HEIGHT 100
+#define BALL_DIAMETER 20
 
 SDL_Color White = {0xFF, 0xF0, 0xF0};
 SDL_Color Red = {0xFF, 0x00, 0x00};
@@ -38,16 +39,19 @@ static void DivideMatrix(double *A, double scalar, int n, int m)
 			A[i*n + j] /= scalar;
 }
 
+/*
 static void TransposeMatrix(double *A, double *B, int n, int m)
 {
 	for (int i=0; i < n; i++)
 		for (int j=0; j < m; j++)
 			B[j*n + i] = A[i*m + j];
 }
+*/
 
 // must be square (n x n)
 // Inversion function borrowed from:
 // https://stackoverflow.com/questions/32043346/square-matrix-inversion-in-c
+/*
 static void InvertMatrix(double *A, double *B, int n)
 {
 	// set up matrix B with the identity matrix
@@ -89,6 +93,7 @@ static void InvertMatrix(double *A, double *B, int n)
         }
     }
 }
+*/
 
 void print_matrix_double(double *A, int n, int m)
 {
@@ -97,7 +102,7 @@ void print_matrix_double(double *A, int n, int m)
    {
       for (j=0; j < m; j++)
 		{
-			printf("%11.2f ", A[i *m + j]);
+			printf("%11.3f ", A[i *m + j]);
 		}
 		putc('\n', stdout);
 	}
@@ -106,8 +111,16 @@ void print_matrix_double(double *A, int n, int m)
 
 CMySimulation::CMySimulation() : robot(NULL), bird(NULL), egg(NULL), player(NULL), ball(NULL), m_fontSans(NULL), m_num_sensors(0),
 		m_sensor_elapsed(0), m_sensor_delay(HZ_TO_NS(SENSOR_FREQUENCY)), m_collision(NULL), m_s_catchrate(NULL), m_catch(0),
-		m_tracefile(NULL), m_s_training(NULL), m_avg_trajectory(NULL)
+		m_tracefile(NULL), m_s_training(NULL), m_avg_trajectory(NULL), m_display_sensors(false)
 {
+	// Initialize a BIP instance
+	m_primitive = new BIP();
+	for (int i=0; i < NUM_STATE_VARIABLES; i++)
+	{
+		m_est_state[i] = 0;
+		m_predicted_state[i] = 0;
+	}
+	m_avg_trajectory = (double*)calloc(sizeof(double), NUM_STATE_VARIABLES * NUM_SAMPLES_TRAJECTORY);
 }
 
 CMySimulation::~CMySimulation()
@@ -118,6 +131,8 @@ CMySimulation::~CMySimulation()
 	delete robot;
 	delete bird;
 	delete ball;
+	delete m_primitive;
+	free(m_avg_trajectory);
 }
 
 bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
@@ -143,7 +158,7 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 	ground->set_name("ground");
 	sim_objects.push_back(ground);
 
-	robot = new sim_object(100/2, ground->y()-(ground->height()/2)-(ROBOT_HEIGHT/2), m_scale);
+	robot = new sim_object(100, ground->y()-(ground->height()/2)-(ROBOT_HEIGHT/2), m_scale);
 	robot->set_width(50);
 	robot->set_height(ROBOT_HEIGHT);
 	robot->set_name("robot");
@@ -155,6 +170,15 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 	player->set_name("player");
 	sim_objects.push_back(player);
 	sim_events.push_back(new sim_event(TIME_BEFORE_BALL, EVENT_THROW_BALL, event_handler));
+
+	ball = new sim_object(player->x() + player->width()/2 + BALL_DIAMETER/2 + 5, robot->y() - robot->height()/2 - BALL_DIAMETER/2 - 10, m_scale);
+	ball->set_width(BALL_DIAMETER);
+	ball->set_height(BALL_DIAMETER);
+	ball->set_name("ball");
+	ball->set_tracer_length(40);
+	sim_objects.push_back(ball);
+
+	AddSensor(SENSOR_BALL, ball);
 /*
 	bird = new sim_object(0, 50, m_scale);
 	bird->set_width(20);
@@ -172,7 +196,7 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 	// create the list of sensors to poll
 	AddSensor(SENSOR_PLAYER, player);
 	AddSensor(SENSOR_ROBOT, robot);
-	DEBUG_PRINT("Capturing sensor data every %lu ns (%lu Hz)\n", m_sensor_delay, 1000000000/m_sensor_delay);
+	DEBUG_PRINT("Capturing sensor data every %f ms (%lu Hz)\n", m_sensor_delay/(double)1000000, 1000000000/m_sensor_delay);
 
 	if (state->training)
 	{
@@ -206,6 +230,18 @@ bool CMySimulation::Initialize(program_state *state, uint32_t w, uint32_t h)
 	{
 		// Load previous traces to create an ensemble
 		CreateInitialEnsemble();
+
+		// Compute the phase mean and phase velocities from the demonstrations.
+		double phase_velocity_mean;
+		double phase_velocity_var;
+		m_primitive->get_phase_stats(&phase_velocity_mean, &phase_velocity_var);
+		printf("Phase velocity mean: %f %%/sample  Variance: %f\n", phase_velocity_mean*100, phase_velocity_var);
+
+		m_primitive->create_initial_ensemble();
+
+		m_primitive->get_mean_trajectory(0, 1, NUM_SAMPLES_TRAJECTORY, m_avg_trajectory);
+		printf("Avg. trajectory:\n");
+		print_matrix_double(m_avg_trajectory, NUM_STATE_VARIABLES, NUM_SAMPLES_TRAJECTORY);
 	}
 
 	UpdateCatchrateUI();
@@ -237,11 +273,13 @@ void CMySimulation::DropEgg()
 
 void CMySimulation::ThrowBall()
 {
+/*
 	if (ball)
 	{
 		DEBUG_PRINT("Ball already thrown!\n");
 		return;
 	}
+*/
 
 	if (!player)
 	{
@@ -254,17 +292,9 @@ void CMySimulation::ThrowBall()
 	uint64_t y = rand() % (MAX_BALL_VELOCITY - MIN_BALL_VELOCITY);
 
 	DEBUG_PRINT("Throwing ball x: %lu y: %lu\n", x, y);
-	ball = new sim_object(player->x() + player->width(), player->y(), m_scale);
-	ball->set_width(20);
-	ball->set_height(20);
 	ball->set_velocity_x(x + MIN_BALL_VELOCITY);
 	ball->set_velocity_y((0 - (double)y - MIN_BALL_VELOCITY));
 	ball->set_acceleration_y(GRAVITY);
-	ball->set_name("ball");
-	ball->set_tracer_length(40);
-	sim_objects.push_back(ball);
-
-	AddSensor(SENSOR_BALL, ball);
 }
 
 bool CMySimulation::AddSensor(uint64_t index, sim_object *s)
@@ -335,13 +365,13 @@ uint64_t CMySimulation::UpdateSimulation(uint64_t abs_ns, uint64_t elapsed_ns)
 		// movement
 		if (!m_state->training)
 		{
-			printf("Robot predicted=%f actual=%f\n", m_predicted_state[STATE_VAR_ROBOT_X], m_sensors[SENSOR_ROBOT]->x());
-			if (m_predicted_state[STATE_VAR_ROBOT_X] > m_sensors[SENSOR_ROBOT]->x())
+			printf("Robot predicted=%f actual=%f\n", m_est_state[STATE_VAR_ROBOT_X], m_sensors[SENSOR_ROBOT]->x());
+			if (m_est_state[STATE_VAR_ROBOT_X] > m_sensors[SENSOR_ROBOT]->x())
 			{
 				RobotMove(DIR_RIGHT);
 			}
 
-			if (m_predicted_state[STATE_VAR_ROBOT_X] < m_sensors[SENSOR_ROBOT]->x())
+			if (m_est_state[STATE_VAR_ROBOT_X] < m_sensors[SENSOR_ROBOT]->x())
 			{
 				RobotMove(DIR_LEFT);
 			}
@@ -397,14 +427,14 @@ void CMySimulation::Draw(SDL_Renderer* renderer)
 	CSimulation::Draw(renderer);
 
 	// draw the average trajectory
-	if (!m_state->training)
+	if (!m_state->training && m_avg_trajectory)
 	{
 		for (unsigned int index = 0; index < NUM_SAMPLES_TRAJECTORY; index++)
 		{
 			filledCircleColor(renderer,
 				m_avg_trajectory[NUM_SAMPLES_TRAJECTORY * STATE_VAR_BALL_X + index],
 				m_avg_trajectory[NUM_SAMPLES_TRAJECTORY * STATE_VAR_BALL_Y + index],
-				5, 0x1010A010);
+				4, 0xF010A010);
 		}
 	}
 
@@ -418,7 +448,7 @@ void CMySimulation::Draw(SDL_Renderer* renderer)
 			5, color);
 	}
 
-	if (display_sensors)
+	if (m_display_sensors)
 	{
 		Message_rect.x = m_width - 220;  //controls the rect's x coordinate 
 		Message_rect.y = m_height / 2; // controls the rect's y coordinte
@@ -519,10 +549,10 @@ void CMySimulation::HandleEvent(SDL_Event *event)
 
 			case SDLK_s:
 				// toggle showing the sensor readings
-				if (display_sensors)
-					display_sensors = false;
+				if (m_display_sensors)
+					m_display_sensors = false;
 				else
-					display_sensors = true;
+					m_display_sensors = true;
 				break;
 
 			case SDLK_r:
@@ -620,9 +650,6 @@ int CMySimulation::CreateInitialEnsemble()
 
 	printf("%s\n", __func__);
 
-	// Initialize a BIP instance
-	m_primitive = new BIP();
-
 	// load traces from the given directory
 	printf("Loading from %s\n", m_state->tracepath);
 	d = opendir(m_state->tracepath);
@@ -656,21 +683,6 @@ int CMySimulation::CreateInitialEnsemble()
 		return -1;
 	}
 
-	// Compute the phase mean and phase velocities from the demonstrations.
-	double phase_velocity_mean;
-	double phase_velocity_var;
-	m_primitive->get_phase_stats(&phase_velocity_mean, &phase_velocity_var);
-	printf("Phase velocity mean: %f %%/ms  Variance: %f\n", phase_velocity_mean*100, phase_velocity_var);
-
-	//m_filter = new EnsembleKalmanFilter(m_primitive);
-	//m_primitive->set_filter(m_filter);
-	m_avg_trajectory = m_primitive->get_mean_trajectory(NUM_SAMPLES_TRAJECTORY);
-	//print_matrix_double(m_avg_trajectory, NUM_STATE_VARIABLES, NUM_SAMPLES_TRAJECTORY);
-
-	// set initial estimated state to average of demonstrations
-	memcpy(m_est_state, &m_avg_trajectory[0], sizeof(double) * NUM_STATE_VARIABLES);
-	m_est_state[STATE_VAR_PHASE_VEL] = phase_velocity_mean;
-
 	return 0;
 }
 
@@ -678,28 +690,13 @@ int CMySimulation::CreateInitialEnsemble()
 // Rather than multiplying by the A matrix, just read the next set of values at this phase
 void CMySimulation::UpdateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns)
 {
-	double *mean = (double *)calloc(sizeof(double), NUM_STATE_VARIABLES);
-	double var;
+	//double *mean = (double *)calloc(sizeof(double), NUM_STATE_VARIABLES);
 
-	printf("$ PHASE : %f %f\n", m_est_state[STATE_VAR_PHASE], m_est_state[STATE_VAR_PHASE_VEL]);
+	//printf("$ PHASE : %f %f\n", m_weights[STATE_VAR_PHASE], m_weights[STATE_VAR_PHASE_VEL]);
 	printf("$ BALL : %f %f\n", m_est_state[STATE_VAR_BALL_X], m_est_state[STATE_VAR_BALL_Y]);
 	printf("$ ROBOT : %f\n", m_est_state[STATE_VAR_ROBOT_X]);
 
-	// calculate our relative phase based on the current estimation of phase velocity
-	double nextPhase = ((double)abs_ns * m_est_state[STATE_VAR_PHASE_VEL])/(double)1000000;
-
-	if (nextPhase > 1)
-	{
-		printf("Warning: error in phase velocity estimation\n");
-		nextPhase = 1;
-	}
-
-	// Matrix of dimension D x D containing the observation noise.
-	//observation_noise = np.diag([10000.0, train_noise_std ** 2]);
-
-	// Matrix of dimension D x T containing a demonstration, where T is the number of timesteps and D is the dimension of the measurement space.
-
-	printf("Propagating at time %lu ns (phase %f)\n", abs_ns, nextPhase);
+	printf("Propagating at time %f ms\n", (double)abs_ns/(double)1000000);
 /*
 	double *gen_trajectory = m_primitive->generate_probable_trajectory_recursive(trajectory, observation_noise, active_dofs, num_samples,
 		1, &phase, mean, &var);
@@ -712,7 +709,6 @@ void CMySimulation::UpdateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns)
 	// read the set of sensors for the controlled agent (robot) and observed agent(s) (person and ball)
 	uint64_t x_pos, y_pos;
 	double sensors[NUM_STATE_VARIABLES];
-	double weights[NUM_STATE_VARIABLES];
 
 	sensor_read_pos(m_sensors[SENSOR_ROBOT], &x_pos, &y_pos);
 	sensors[STATE_VAR_ROBOT_X] = x_pos;
@@ -722,29 +718,30 @@ void CMySimulation::UpdateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns)
 	sensors[STATE_VAR_BALL_Y] = y_pos;
 
 	// set random noise
+/*
 	int i,j;
+	double noise_range = 0.00001;
 	for (i=0; i < NUM_STATE_VARIABLES; i++)
 	{
 		for (j=0; j < NUM_STATE_VARIABLES; j++)
 		{
-			//m_sensorNoise[i*NUM_STATE_VARIABLES + j] = rand() * 0.00001;
+			m_sensorNoise[i*NUM_STATE_VARIABLES + j] = ((double)rand()/(double)RAND_MAX * noise_range) - (noise_range/2);
 		}
 	}
-	m_primitive->measurement_update(nextPhase, sensors, m_sensorNoise);
+*/
+	double sample = ((double)abs_ns / 1000000000) * (double)SENSOR_FREQUENCY;
+	printf("sample: %f\n", sample);
+	m_primitive->estimate_state(sample, sensors, NULL, m_est_state);
+	//m_primitive->get_mean_trajectory(0, 1, NUM_SAMPLES_TRAJECTORY, m_avg_trajectory);
 
-	m_primitive->predict_outcome(nextPhase, weights, m_predicted_state);
 
-	//double nextMean[NUM_STATE_VARIABLES];
-	//get_ensemble_mean(nextMean, nextState);
-	m_est_state[STATE_VAR_PHASE] = nextPhase;
-	m_est_state[STATE_VAR_BALL_X] = sensors[STATE_VAR_BALL_X];
-	m_est_state[STATE_VAR_BALL_Y] = sensors[STATE_VAR_BALL_Y];
-	m_est_state[STATE_VAR_ROBOT_X] = sensors[STATE_VAR_ROBOT_X];
-	printf("^ PHASE : %f %f\n", m_est_state[STATE_VAR_PHASE], m_est_state[STATE_VAR_PHASE_VEL]);
+	//printf("^ PHASE : %f %f\n", m_est_state[STATE_VAR_PHASE], m_est_state[STATE_VAR_PHASE_VEL]);
+	//printf("^ PHASE : %f\n", m_est_state[STATE_VAR_PHASE]);
 	printf("^ BALL : %f %f\n", m_est_state[STATE_VAR_BALL_X], m_est_state[STATE_VAR_BALL_Y]);
 	printf("^ ROBOT : %f\n", m_est_state[STATE_VAR_ROBOT_X]);
-	printf("> PHASE : %f %f\n", m_predicted_state[STATE_VAR_PHASE], m_predicted_state[STATE_VAR_PHASE_VEL]);
-	printf("> BALL : %f %f\n", m_predicted_state[STATE_VAR_BALL_X], m_predicted_state[STATE_VAR_BALL_Y]);
-	printf("> ROBOT : %f\n", m_predicted_state[STATE_VAR_ROBOT_X]);
+	//printf("> PHASE : %f %f\n", m_predicted_state[STATE_VAR_PHASE], m_predicted_state[STATE_VAR_PHASE_VEL]);
+	//printf("> PHASE : %f\n", m_predicted_state[STATE_VAR_PHASE]);
+	//printf("> BALL : %f %f\n", m_predicted_state[STATE_VAR_BALL_X], m_predicted_state[STATE_VAR_BALL_Y]);
+	//printf("> ROBOT : %f\n", m_predicted_state[STATE_VAR_ROBOT_X]);
 }
 

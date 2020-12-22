@@ -3,7 +3,14 @@
 
 #include <list>
 #include "interaction.h"
-#include "enkf.h"
+
+enum
+{
+	ENSEMBLE_STATE_PHASE,
+	ENSEMBLE_STATE_PHASE_VEL,
+	ENSEMBLE_STATE_WEIGHT,
+	NUM_ENSEMBLE_STATES
+};
 
 enum
 {
@@ -22,38 +29,27 @@ class BIP
 public:
 	BIP();
 	~BIP();
-	void export_data(const char *filename);
-	void import_data(const char *filename);
-	void compute_standardization(double *trajectory);
 	void add_demonstration(CInteraction *interaction);
-	double* get_mean_trajectory(unsigned int num_samples);
-	void get_approximate_trajectory();
-	void get_approximate_trajectory_derivative();
-	void get_probability_distribution();
 	void get_phase_stats(double *phase_velocity_mean, double *phase_velocity_var);
-	void basis_transform();
-	double* basis_inverse_transform(double range_start, double range_end, unsigned int num_samples);
-	//void get_basis_weight_parameters(double *mean, double *var);
-	double* generate_probable_trajectory_recursive(double *trajectory, double *observation_noise, double *active_dofs, unsigned int num_samples,
-		double starting_phase, double *phase, double *mean, double *var);
-	//void set_filter(EnsembleKalmanFilter *f) { m_filter = f; }
-	void apply_coefficients(double phase, double *weights, double *trajectory);
+	void get_mean_trajectory(double range_start, double range_end, unsigned int num_samples, double *trajectory);
 
-	void get_ensemble_at(double phase, double *ensemble);
-	void measurement_update(double phase, double *sensors, double *sensorNoise);
-	void predict_outcome(double phase, double *weights, double *predictedState);
 	void get_ensemble_mean(double *mean, double *ensemble);
+	void create_initial_ensemble();
+	void estimate_state(double phase, double *sensors, double *sensorNoise, double *predictedState);
+	void get_weighted_mean(double *matrix);
 	
 
 protected:
-	void init_scalers();
-	void estimate_state(double phase, double *ensemble, double *predictedState);
+	void generate_noise(double *matrix, double range, int n, int m);
+	void hx(double *matrix);
+	void get_ha_matrix(double *hx, double *ha);
+	void propagate_ensemble(double sample);
+	void add_sensor_noise(double *sensors, double *obs, double range, int m, int n);
+	void apply_weights(int member, double *sample);
 
 private:
-	double m_basis_weights[NUM_STATE_VARIABLES];
 	interaction_list m_interactions;
-	double m_ensemble[NUM_ENSEMBLE_MEMBERS * NUM_STATE_VARIABLES];
-	double *KalmanGain;
+	double m_weights[NUM_ENSEMBLE_STATES * NUM_ENSEMBLE_MEMBERS]; // weights representing each ensemble member - rename as m_ensemble (B x E)
 };
 
 #endif // _BIP__H

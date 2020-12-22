@@ -107,15 +107,30 @@ bool CInteraction::Load(FILE *f)
 	}
 
 	// interactions always start at 0, even if the first measurement isn't exactly at 0
-	m_length = timestamp/1000000; // in milliseconds
+	//m_length = timestamp/1000000; // in milliseconds
+	m_length = m_measurements.size(); // number of samples
 
 	return true;
 }
 
 void CInteraction::get_sample(double phase, double sample[])
 {
-	uint64_t elapsed_time_ns = phase * m_length * 1000000;
+	//uint64_t elapsed_time_ns = phase * m_length * 1000000;
 	//printf("Elapsed time: %lu out of %lu\n", elapsed_time_ns, m_length);
+	uint64_t sample_index;
+
+	if (phase < 0)
+	{
+		printf("%s: phase too small\n", __func__);
+		phase = 0;
+	}
+	if (phase > 1)
+	{
+		printf("%s: phase too large\n", __func__);
+		phase = 1;
+	}
+	
+	sample_index = phase * m_length;
 
 	// look up data at that timestamp - linear search for now, can be improved
 	measurement *current_sample = NULL;
@@ -123,12 +138,14 @@ void CInteraction::get_sample(double phase, double sample[])
 	{
 		current_sample = *i;
 		//printf("Looking at timestamp %lu\n", current_sample->timestamp);
-		if (current_sample->timestamp >= elapsed_time_ns)
-			break; 
+		//if (current_sample->timestamp >= elapsed_time_ns)
+		//	break; 
+		if (!sample_index--)
+			break;
 	}
 
-	sample[STATE_VAR_PHASE] = current_sample->timestamp / m_length / 1000000;
-	sample[STATE_VAR_PHASE_VEL] = 0;
+	//sample[STATE_VAR_PHASE] = phase;//(double)current_sample->timestamp / (double)m_length / (double)1000000;
+	//sample[STATE_VAR_PHASE_VEL] = 0.01;
 	sample[STATE_VAR_BALL_X] = current_sample->ball.x;
 	sample[STATE_VAR_BALL_Y] = current_sample->ball.y;
 	sample[STATE_VAR_ROBOT_X] = current_sample->robot.x;

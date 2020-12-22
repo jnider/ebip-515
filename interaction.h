@@ -5,17 +5,15 @@
 #include <list>
 #include "simulation.h"
 
-#define NUM_ENSEMBLE_MEMBERS		8
-#define NUM_STATE_VARIABLES		5
+#define NUM_ENSEMBLE_MEMBERS		100
 #define MAX_LATENT_FUNCTIONS		1
 
 enum
 {
-	STATE_VAR_PHASE,
-	STATE_VAR_PHASE_VEL,
 	STATE_VAR_BALL_X,
 	STATE_VAR_BALL_Y,
 	STATE_VAR_ROBOT_X,
+	NUM_STATE_VARIABLES
 };
 
 

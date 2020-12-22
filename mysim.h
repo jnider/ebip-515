@@ -3,11 +3,11 @@
 
 #include "simulation.h"
 #include "interaction.h"
-#include "enkf.h"
 #include "bip.h"
 
 #define HZ_TO_NS(_hz)				(1000000000UL/_hz)
 #define SECONDS_TO_NS(_n)			(1000000000UL * _n)
+#define MS_TO_NS(_n)			      (1000000UL * _n)
 
 #define GRAVITY 						9.81
 #define SENSOR_FREQUENCY			60
@@ -59,9 +59,6 @@ protected:
 	int CreateInitialEnsemble();
 	void UpdateEnsemble(uint64_t abs_ns, uint64_t elapsed_ns);
 
-public:
-	bool display_sensors; // should we display the sensor readings on-screen
-
 private:
 	sim_object *ground;
 	sim_object *robot;
@@ -78,6 +75,7 @@ private:
 	uint64_t m_catch;
 	uint64_t m_trials;
 	FILE *m_tracefile; // log of sensor readings in CSV format
+	bool m_display_sensors; // should we display the sensor readings on-screen
 
 	SDL_Surface* m_s_sensors[MAX_SENSORS]; // ui objects containing sensor text
 	SDL_Surface* m_s_catchrate;
@@ -86,7 +84,6 @@ private:
 	double m_sensorNoise[NUM_STATE_VARIABLES * NUM_STATE_VARIABLES];
 	double m_est_state[NUM_STATE_VARIABLES];
 	double m_predicted_state[NUM_STATE_VARIABLES];
-	EnsembleKalmanFilter* m_filter;
 	BIP *m_primitive;
 	double *m_avg_trajectory;
 };
